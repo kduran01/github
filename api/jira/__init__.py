@@ -1,90 +1,151 @@
-"""
-Azure Function: /api/jira
-Proxies requests to the Jira Cloud REST API.
-Accepts POST with JSON body:
-  { "endpoint": "/rest/api/3/...", "method": "GET"|"POST", "body": {...} }
-Returns the raw Jira API response.
-"""
-
-import json
-import logging
-import os
-from base64 import b64encode
-
 import azure.functions as func
-import requests  # type: ignore
-
-logger = logging.getLogger(__name__)
-
-JIRA_BASE_URL = "https://vantaca.atlassian.net"
-
+import json
+import os
+import logging
+import requests
+from requests.auth import HTTPBasicAuth
 
 def main(req: func.HttpRequest) -> func.HttpResponse:
-    """Handle POST /api/jira — forward a request to the Jira Cloud API."""
-
-    if req.method == "OPTIONS":
-        return func.HttpResponse(
-            status_code=200,
-            headers={
-                "Access-Control-Allow-Origin": "*",
-                "Access-Control-Allow-Methods": "POST, OPTIONS",
-                "Access-Control-Allow-Headers": "Content-Type",
-            },
-        )
+    logging.info('Jira function triggered')
 
     try:
-        body = req.get_json()
-    except ValueError:
-        return _error("Request body must be valid JSON", 400)
+        # Get request parameters
+        req_body = req.get_json()
+        operation = req_body.get('operation')
 
-    endpoint   = (body or {}).get("endpoint", "").strip()
-    method     = (body or {}).get("method", "GET").upper()
-    req_body   = (body or {}).get("body")
+        # Get Jira connection details from environment variables
+        jira_url = os.environ.get('JIRA_URL', 'https://vantaca.atlassian.net')
+        jira_email = os.environ.get('JIRA_EMAIL')
+        jira_api_token = os.environ.get('JIRA_API_TOKEN')
 
-    if not endpoint:
-        return _error("Missing required field: endpoint", 400)
+        if not all([jira_email, jira_api_token]):
+            return func.HttpResponse(
+                json.dumps({"error": "Missing Jira configuration"}),
+                status_code=500,
+                mimetype="application/json"
+            )
 
-    jira_email = os.environ.get("JIRA_EMAIL")
-    jira_token = os.environ.get("JIRA_API_TOKEN")
+        auth = HTTPBasicAuth(jira_email, jira_api_token)
+        headers = {
+            "Accept": "application/json",
+            "Content-Type": "application/json"
+        }
 
-    if not all([jira_email, jira_token]):
-        return _error("Jira credentials not configured", 500)
+        # Handle different operations
+        if operation == 'searchJiraIssuesUsingJql':
+            jql = req_body.get('jql')
+            if not jql:
+                return func.HttpResponse(
+                    json.dumps({"error": "Missing 'jql' parameter"}),
+                    status_code=400,
+                    mimetype="application/json"
+                )
 
-    credentials = b64encode(f"{jira_email}:{jira_token}".encode()).decode()
-    headers = {
-        "Authorization": f"Basic {credentials}",
-        "Accept": "application/json",
-        "Content-Type": "application/json",
-    }
+            # Search Jira issues using JQL
+            search_url = f"{jira_url}/rest/api/3/search"
+            payload = {
+                "jql": jql,
+                "maxResults": req_body.get('maxResults', 100),
+                "fields": req_body.get('fields', ['*all'])
+            }
 
-    url = f"{JIRA_BASE_URL}{endpoint}"
+            response = requests.post(search_url, json=payload, headers=headers, auth=auth)
+            response.raise_for_status()
 
-    try:
-        if method == "GET":
-            resp = requests.get(url, headers=headers, timeout=15)
-        elif method == "POST":
-            resp = requests.post(url, headers=headers, json=req_body, timeout=15)
+            return func.HttpResponse(
+                json.dumps(response.json()),
+                status_code=200,
+                mimetype="application/json"
+            )
+
+        elif operation == 'getJiraIssue':
+            issue_key = req_body.get('issueKey')
+            if not issue_key:
+                return func.HttpResponse(
+                    json.dumps({"error": "Missing 'issueKey' parameter"}),
+                    status_code=400,
+                    mimetype="application/json"
+                )
+
+            issue_url = f"{jira_url}/rest/api/3/issue/{issue_key}"
+            response = requests.get(issue_url, headers=headers, auth=auth)
+            response.raise_for_status()
+
+            return func.HttpResponse(
+                json.dumps(response.json()),
+                status_code=200,
+                mimetype="application/json"
+            )
+
+        elif operation == 'addCommentToJiraIssue':
+            issue_key = req_body.get('issueKey')
+            comment_body = req_body.get('body')
+
+            if not issue_key or not comment_body:
+                return func.HttpResponse(
+                    json.dumps({"error": "Missing 'issueKey' or 'body' parameter"}),
+                    status_code=400,
+                    mimetype="application/json"
+                )
+
+            comment_url = f"{jira_url}/rest/api/3/issue/{issue_key}/comment"
+            payload = {
+                "body": {
+                    "type": "doc",
+                    "version": 1,
+                    "content": [
+                        {
+                            "type": "paragraph",
+                            "content": [
+                                {
+                                    "type": "text",
+                                    "text": comment_body
+                                }
+                            ]
+                        }
+                    ]
+                }
+            }
+
+            response = requests.post(comment_url, json=payload, headers=headers, auth=auth)
+            response.raise_for_status()
+
+            return func.HttpResponse(
+                json.dumps(response.json()),
+                status_code=201,
+                mimetype="application/json"
+            )
+
+        elif operation == 'atlassianUserInfo':
+            # Get current user info
+            myself_url = f"{jira_url}/rest/api/3/myself"
+            response = requests.get(myself_url, headers=headers, auth=auth)
+            response.raise_for_status()
+
+            return func.HttpResponse(
+                json.dumps(response.json()),
+                status_code=200,
+                mimetype="application/json"
+            )
+
         else:
-            return _error(f"Unsupported method: {method}", 400)
+            return func.HttpResponse(
+                json.dumps({"error": f"Unknown operation: {operation}"}),
+                status_code=400,
+                mimetype="application/json"
+            )
 
+    except requests.exceptions.RequestException as e:
+        logging.error(f"Jira API error: {str(e)}")
         return func.HttpResponse(
-            body=resp.text,
-            status_code=resp.status_code,
-            mimetype="application/json",
-            headers={"Access-Control-Allow-Origin": "*"},
+            json.dumps({"error": f"Jira API error: {str(e)}"}),
+            status_code=500,
+            mimetype="application/json"
         )
-
-    except requests.exceptions.Timeout:
-        return _error("Jira API request timed out", 504)
-    except Exception as exc:
-        logger.exception("Jira API request failed")
-        return _error(f"Request failed: {exc}", 500)
-
-
-def _error(msg: str, status: int) -> func.HttpResponse:
-    return func.HttpResponse(
-        body=json.dumps({"error": msg}),
-        status_code=status,
-        mimetype="application/json",
-        headers={"Access-Control-Allow-Origin": "*"},
-    )
+    except Exception as e:
+        logging.error(f"Error in Jira function: {str(e)}")
+        return func.HttpResponse(
+            json.dumps({"error": str(e)}),
+            status_code=500,
+            mimetype="application/json"
+        )

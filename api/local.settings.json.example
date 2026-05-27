@@ -3,12 +3,10 @@
   "Values": {
     "AzureWebJobsStorage": "",
     "FUNCTIONS_WORKER_RUNTIME": "python",
-    "DATABRICKS_SERVER_HOSTNAME": "adb-XXXXX.azuredatabricks.net",
-    "DATABRICKS_HTTP_PATH": "/sql/1.0/warehouses/XXXXX",
-    "DATABRICKS_ACCESS_TOKEN": "your-databricks-pat-here",
+    "ROCKETLANE_API_KEY": "your-rocketlane-api-key-here",
     "JIRA_URL": "https://vantaca.atlassian.net",
-    "JIRA_EMAIL": "you@vantaca.com",
-    "JIRA_API_TOKEN": "your-jira-api-token-here"
+    "JIRA_EMAIL": "your-email@vantaca.com",
+    "JIRA_API_TOKEN": "your-jira-api-token"
   },
   "Host": {
     "CORS": "*"
