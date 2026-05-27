@@ -1,0 +1,2225 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Integration Status Dashboard</title>
+<style>
+:root {
+  color-scheme: light;
+  --green: #22c55e; --orange: #f97316; --red: #ef4444;
+  --border: #e5e7eb; --text: #111827; --text-secondary: #6b7280;
+  --primary: #4f46e5; --header-bg: #1e1b4b;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif; background: #f3f4f6; color: var(--text); font-size: 13px; line-height: 1.4; }
+
+.dashboard-header { background: var(--header-bg); color: white; padding: 14px 20px 12px; position: sticky; top: 0; z-index: 100; }
+.header-top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+.dashboard-title { font-size: 17px; font-weight: 700; letter-spacing: -0.3px; }
+.dashboard-title .subtitle { opacity: 0.6; font-weight: 400; font-size: 12px; margin-left: 10px; }
+.header-actions { display: flex; align-items: center; gap: 12px; }
+.last-updated { font-size: 11px; opacity: 0.55; }
+.btn-refresh { background: rgba(255,255,255,0.15); border: 1px solid rgba(255,255,255,0.25); color: white; padding: 5px 14px; border-radius: 6px; cursor: pointer; font-size: 12px; }
+.btn-refresh:hover { background: rgba(255,255,255,0.25); }
+.btn-refresh:disabled { opacity: 0.45; cursor: not-allowed; }
+.stats-bar { display: flex; gap: 10px; flex-wrap: wrap; }
+.stat-chip { background: rgba(255,255,255,0.1); border-radius: 20px; padding: 3px 12px; font-size: 11px; font-weight: 500; display: flex; align-items: center; gap: 6px; }
+.stat-dot { width: 7px; height: 7px; border-radius: 50%; }
+
+/* Status banner */
+.data-status-bar { font-size: 11px; padding: 6px 16px; display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+.data-status-bar.ok   { background: #f0fdf4; border-bottom: 1px solid #bbf7d0; color: #15803d; }
+.data-status-bar.warn { background: #fffbeb; border-bottom: 1px solid #fde68a; color: #92400e; }
+.data-status-bar.err  { background: #fef2f2; border-bottom: 1px solid #fecaca; color: #b91c1c; }
+.source-badge { font-weight: 600; padding: 1px 8px; border-radius: 10px; font-size: 10px; }
+.source-badge.ok  { background: #dcfce7; color: #15803d; }
+.source-badge.err { background: #fee2e2; color: #b91c1c; }
+.source-badge.loading { background: #e0e7ff; color: #4338ca; }
+
+.controls { background: white; border-bottom: 1px solid var(--border); padding: 9px 16px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.search-wrap { position: relative; flex: 1; min-width: 180px; }
+.search-icon { position: absolute; left: 9px; top: 50%; transform: translateY(-50%); color: #9ca3af; pointer-events: none; }
+.search-input { width: 100%; padding: 6px 10px 6px 28px; border: 1px solid var(--border); border-radius: 6px; font-size: 13px; background: #f9fafb; }
+.search-input:focus { outline: none; border-color: var(--primary); background: white; }
+.filter-select { padding: 6px 10px; border: 1px solid var(--border); border-radius: 6px; font-size: 12px; background: white; color: var(--text); cursor: pointer; }
+.month-tabs { display: flex; gap: 3px; }
+.month-tab { padding: 5px 14px; border-radius: 6px; border: 1px solid var(--border); background: white; cursor: pointer; font-size: 12px; font-weight: 500; color: var(--text-secondary); transition: all 0.15s; }
+.month-tab.active { background: var(--primary); color: white; border-color: var(--primary); }
+.view-tabs { display: flex; gap: 3px; margin-left: auto; }
+
+
+.table-wrapper { overflow-x: auto; background: white; }
+table { width: 100%; border-collapse: collapse; }
+thead th { background: #f8fafc; border-bottom: 2px solid var(--border); padding: 9px 12px; text-align: left; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-secondary); white-space: nowrap; cursor: pointer; user-select: none; }
+thead th:hover { color: var(--text); }
+thead th.sorted { color: var(--primary); }
+tbody tr { border-bottom: 1px solid #f0f0f0; }
+tbody tr.data-row:hover { background: #f8fafc; cursor: pointer; }
+tbody tr.expanded-row-parent { background: #f0f9ff !important; }
+tbody td { padding: 9px 12px; vertical-align: middle; }
+
+.status-dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; flex-shrink: 0; }
+.status-dot.green  { background: var(--green); box-shadow: 0 0 0 3px rgba(34,197,94,0.15); }
+.status-dot.orange { background: var(--orange); box-shadow: 0 0 0 3px rgba(249,115,22,0.15); }
+.status-dot.red    { background: var(--red); box-shadow: 0 0 0 3px rgba(239,68,68,0.15); }
+.status-dot.white  { background: #d1d5db; }
+
+.days-badge { display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: 600; white-space: nowrap; }
+.days-badge.red    { background: #fef2f2; color: var(--red); }
+.days-badge.orange { background: #fff7ed; color: var(--orange); }
+.days-badge.white  { background: #f3f4f6; color: var(--text-secondary); }
+.days-badge.live   { background: #f0fdf4; color: #15803d; }
+
+.progress-bar { width: 56px; height: 5px; background: #e5e7eb; border-radius: 3px; overflow: hidden; display: inline-block; vertical-align: middle; margin-right: 5px; }
+.progress-fill { height: 100%; border-radius: 3px; }
+.expand-btn { background: none; border: none; cursor: pointer; color: var(--text-secondary); font-size: 11px; padding: 3px 6px; border-radius: 4px; }
+.expand-btn:hover { background: var(--border); }
+
+.detail-row { display: none; }
+.detail-row.open { display: table-row; }
+.detail-cell { padding: 16px 16px 20px 44px; background: #f8faff; border-bottom: 2px solid #c7d2fe; }
+.detail-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; max-width: 1200px; }
+@media (max-width: 900px) { .detail-grid { grid-template-columns: 1fr; } }
+
+.section-label { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.8px; color: var(--text-secondary); margin-bottom: 8px; }
+.milestone-list { display: flex; flex-direction: column; gap: 5px; }
+.milestone-item { display: flex; align-items: center; gap: 8px; padding: 7px 10px; border-radius: 6px; border: 1px solid var(--border); background: white; border-left-width: 3px; }
+.milestone-item.green  { border-left-color: var(--green); }
+.milestone-item.orange { border-left-color: var(--orange); background: #fffcf8; }
+.milestone-item.red    { border-left-color: var(--red); background: #fff5f5; }
+.milestone-item.white  { border-left-color: #d1d5db; }
+.m-step { font-size: 10px; font-weight: 700; color: var(--text-secondary); min-width: 18px; text-align: center; }
+.m-content { flex: 1; min-width: 0; }
+.m-name { font-size: 12px; font-weight: 600; }
+.m-meta { font-size: 10px; color: var(--text-secondary); margin-top: 1px; }
+.m-badge { font-size: 10px; font-weight: 600; padding: 1px 7px; border-radius: 10px; white-space: nowrap; }
+.m-badge.green  { background: #f0fdf4; color: #15803d; }
+.m-badge.orange { background: #fff7ed; color: #c2410c; }
+.m-badge.red    { background: #fef2f2; color: #b91c1c; }
+.m-badge.white  { background: #f3f4f6; color: var(--text-secondary); }
+
+/* Interactive milestone checkboxes */
+.m-checkbox { width: 20px; height: 20px; border-radius: 5px; border: 2px solid #d1d5db; cursor: pointer; flex-shrink: 0; display: flex; align-items: center; justify-content: center; transition: all 0.15s; background: white; font-size: 12px; font-weight: 700; user-select: none; }
+.m-checkbox:hover:not(.saving) { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(79,70,229,0.1); }
+.m-checkbox.checked { background: var(--green); border-color: var(--green); color: white; }
+.m-checkbox.saving  { background: #e0e7ff; border-color: var(--primary); cursor: wait; animation: pulse 0.8s ease-in-out infinite; }
+.m-completedby { font-size: 10px; color: #6b7280; font-style: italic; margin-top: 2px; }
+.milestone-item.done-manual { border-left-color: var(--green); background: #f0fdf4; }
+.milestone-item.blocker { border-left-color: var(--red); background: #fff5f5; animation: blockerPulse 1.4s ease-in-out infinite; }
+@keyframes blockerPulse { 0%,100%{border-left-color:var(--red)} 50%{border-left-color:#fca5a5} }
+@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.5} }
+
+/* Running Notes */
+.notes-section { margin-top: 16px; background: white; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+.notes-header { padding: 9px 14px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; background: #fafafa; }
+.notes-list { max-height: 240px; overflow-y: auto; }
+.note-item { padding: 9px 14px; border-bottom: 1px solid #f3f4f6; }
+.note-item:last-child { border-bottom: none; }
+.note-meta { font-size: 10px; color: var(--text-secondary); margin-bottom: 3px; font-weight: 500; }
+.note-text { font-size: 12px; color: var(--text); line-height: 1.55; white-space: pre-wrap; word-break: break-word; }
+.notes-empty { padding: 14px; font-size: 12px; color: #9ca3af; font-style: italic; text-align: center; }
+.note-input-area { padding: 10px 14px; border-top: 1px solid var(--border); background: #f9fafb; }
+.note-textarea { width: 100%; min-height: 56px; padding: 7px 10px; border: 1px solid var(--border); border-radius: 6px; font-size: 12px; font-family: inherit; resize: vertical; background: white; line-height: 1.5; }
+.note-textarea:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 2px rgba(79,70,229,0.1); }
+.note-actions { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
+.note-submit { background: var(--primary); color: white; border: none; border-radius: 6px; padding: 5px 14px; font-size: 12px; cursor: pointer; font-weight: 500; }
+.note-submit:hover { background: #4338ca; }
+.note-submit:disabled { opacity: 0.5; cursor: not-allowed; }
+.note-status-msg { font-size: 11px; color: #6b7280; }
+
+/* Detail layout — info bar + integration cards */
+.detail-expanded { display: flex; flex-direction: column; gap: 14px; max-width: 1280px; }
+.detail-info-bar { display: flex; gap: 12px; flex-wrap: wrap; }
+.detail-info-block { background: white; border: 1px solid var(--border); border-radius: 8px; padding: 11px 14px; flex: 1; min-width: 200px; }
+
+/* Per-integration cards */
+.int-card { border: 1px solid var(--border); border-radius: 8px; overflow: hidden; background: white; }
+.int-card-header { display: flex; align-items: center; gap: 10px; padding: 10px 14px; background: linear-gradient(to right,#f8faff,#f3f4f6); border-bottom: 1px solid var(--border); flex-wrap: wrap; cursor: pointer; user-select: none; }
+.int-card-header:hover { background: linear-gradient(to right,#eef2ff,#e9eaf0); }
+.int-card-chevron { font-size: 11px; color: var(--text-secondary); transition: transform 0.2s; margin-left: auto; padding: 2px 4px; flex-shrink: 0; }
+.int-card-chevron.collapsed { transform: rotate(-90deg); }
+.int-card-body { }
+.int-card-body.collapsed { display: none; }
+.int-card-name { font-weight: 700; font-size: 13px; flex: 1; min-width: 120px; color: var(--text); }
+.int-card-jira { display: flex; align-items: center; gap: 6px; }
+.int-card-key { font-size: 11px; font-weight: 700; color: var(--primary); text-decoration: none; padding: 2px 8px; background: #eef2ff; border-radius: 10px; white-space: nowrap; }
+.int-card-key:hover { background: #c7d2fe; }
+.int-card-meta { font-size: 10px; color: var(--text-secondary); display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.int-card-milestones { padding: 8px 10px; display: flex; flex-direction: column; gap: 4px; }
+.int-card-comment-area { border-top: 1px solid #f0f0f0; }
+.int-no-tickets { padding: 20px; text-align: center; font-size: 12px; color: #9ca3af; background: white; border: 1px solid var(--border); border-radius: 8px; }
+
+/* Checklist section headers inside bank cards */
+.checklist-section-header { font-size: 11px; font-weight: 700; letter-spacing: .03em; padding: 5px 10px; margin: 0; }
+.pm-section-header  { background: #4b5563; color: #fff; }
+.int-section-header { background: #374151; color: #fff; }
+
+/* Activity feed — recent comments from Jira / Rocketlane */
+.activity-feed { border-top: 1px solid #f0f0f0; padding: 8px 10px; display: flex; flex-direction: column; gap: 6px; }
+.activity-feed-header { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: .05em; color: #9ca3af; margin-bottom: 2px; }
+.activity-item { background: #f9fafb; border-radius: 6px; padding: 7px 10px; }
+.activity-meta { display: flex; align-items: center; gap: 6px; margin-bottom: 3px; flex-wrap: wrap; }
+.activity-source { font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; padding: 1px 5px; border-radius: 4px; }
+.activity-source.jira-source { background: #e0e7ff; color: #3730a3; }
+.activity-source.rl-source   { background: #dcfce7; color: #166534; }
+.activity-author { font-size: 11px; font-weight: 600; color: #374151; }
+.activity-date   { font-size: 10px; color: #9ca3af; margin-left: auto; }
+.activity-body   { font-size: 11px; color: #4b5563; line-height: 1.45; white-space: pre-wrap; word-break: break-word; }
+
+/* Right column */
+.detail-right { display: flex; flex-direction: column; gap: 12px; }
+.detail-section { background: white; border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; }
+.team-chips { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 6px; }
+.team-chip { display: inline-flex; align-items: center; gap: 4px; padding: 3px 10px; border-radius: 12px; font-size: 11px; font-weight: 500; }
+.team-chip.pm  { background: #eef2ff; color: #4338ca; }
+.team-chip.int { background: #f0fdf4; color: #15803d; }
+
+.jira-section { background: white; border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; }
+.jira-ticket { display: flex; align-items: flex-start; gap: 10px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px; margin-bottom: 6px; background: #fafafa; text-decoration: none; color: inherit; }
+.jira-ticket:hover { background: #f0f9ff; border-color: #a5b4fc; }
+.jira-ticket:last-child { margin-bottom: 0; }
+.jira-key { font-size: 11px; font-weight: 700; color: var(--primary); white-space: nowrap; min-width: 80px; }
+.jira-content { flex: 1; min-width: 0; }
+.jira-summary { font-size: 12px; font-weight: 500; margin-bottom: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.jira-meta { font-size: 10px; color: var(--text-secondary); display: flex; gap: 8px; flex-wrap: wrap; }
+.jira-status { font-size: 10px; font-weight: 600; padding: 2px 7px; border-radius: 10px; white-space: nowrap; flex-shrink: 0; }
+.jira-status.todo { background: #f3f4f6; color: #374151; }
+.jira-status.inprogress { background: #dbeafe; color: #1d4ed8; }
+.jira-status.inreview { background: #ede9fe; color: #6d28d9; }
+.jira-status.needstesting { background: #ecfdf5; color: #065f46; }
+.jira-status.waiting { background: #fef9c3; color: #854d0e; }
+.jira-status.validation { background: #f0f9ff; color: #0369a1; }
+.jira-status.done { background: #f0fdf4; color: #15803d; }
+.stale-flag { font-size: 10px; background: #fef3c7; color: #92400e; padding: 1px 6px; border-radius: 8px; font-weight: 600; }
+
+.comment-btn { background: none; border: 1px solid #c7d2fe; color: #4f46e5; border-radius: 6px; padding: 2px 8px; font-size: 10px; cursor: pointer; white-space: nowrap; flex-shrink: 0; }
+.comment-btn:hover { background: #eef2ff; }
+.comment-form { margin-top: 8px; padding: 10px; background: #f5f3ff; border: 1px solid #c7d2fe; border-radius: 8px; }
+.comment-textarea { width: 100%; min-height: 72px; padding: 8px 10px; border: 1px solid #c7d2fe; border-radius: 6px; font-size: 12px; font-family: inherit; resize: vertical; background: white; }
+.comment-textarea:focus { outline: none; border-color: #4f46e5; }
+.comment-actions { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
+.comment-submit { background: #4f46e5; color: white; border: none; border-radius: 6px; padding: 5px 14px; font-size: 12px; cursor: pointer; font-weight: 500; }
+.comment-submit:hover { background: #4338ca; }
+.comment-submit:disabled { opacity: 0.5; cursor: not-allowed; }
+.comment-cancel { background: none; border: 1px solid var(--border); border-radius: 6px; padding: 5px 10px; font-size: 12px; cursor: pointer; color: var(--text-secondary); }
+.comment-cancel:hover { background: #f3f4f6; }
+.comment-status { font-size: 11px; margin-left: auto; }
+.rl-link { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; color: #4f46e5; text-decoration: none; font-weight: 500; padding: 4px 0; }
+.rl-link:hover { text-decoration: underline; }
+
+.no-tickets { border: 1.5px dashed #a5b4fc; border-radius: 8px; padding: 14px 16px; text-align: center; color: var(--text-secondary); font-size: 12px; background: #f5f3ff; }
+.info-row { font-size: 12px; color: var(--text); line-height: 2; }
+.info-row strong { color: var(--text-secondary); font-weight: 500; margin-right: 4px; }
+
+.loading-state, .error-state, .empty-state { text-align: center; padding: 60px 20px; color: var(--text-secondary); }
+.loading-spinner { width: 30px; height: 30px; border: 3px solid var(--border); border-top-color: var(--primary); border-radius: 50%; animation: spin 0.75s linear infinite; margin: 0 auto 12px; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.retry-btn { margin-top: 12px; padding: 6px 18px; border: 1px solid var(--border); border-radius: 6px; background: white; cursor: pointer; font-size: 12px; }
+
+.error-detail { background: #fef2f2; border: 1px solid #fecaca; border-radius: 6px; padding: 10px 12px; margin-top: 10px; font-size: 11px; color: #7f1d1d; text-align: left; max-width: 500px; word-break: break-all; margin-left: auto; margin-right: auto; }
+</style>
+</head>
+<body>
+
+<div class="dashboard-header">
+  <div class="header-top">
+    <div class="dashboard-title">
+      🔗 Integration Status Dashboard
+      <span class="subtitle" id="dashSubtitle">Loading… · Vantaca Implementations</span>
+    </div>
+    <div class="header-actions">
+      <span class="last-updated" id="lastUpdated">—</span>
+      <button class="btn-refresh" id="refreshBtn" onclick="loadData()">↻ Refresh</button>
+    </div>
+  </div>
+  <div class="stats-bar" id="statsBar"><div class="stat-chip">Loading…</div></div>
+</div>
+
+<div class="data-status-bar" id="dataStatusBar" style="display:none"></div>
+
+<div class="controls">
+  <div class="search-wrap">
+    <span class="search-icon">⌕</span>
+    <input class="search-input" type="search" id="searchInput" placeholder="Search clients or PMs…" oninput="renderTable()">
+  </div>
+  <select class="filter-select" id="statusFilter" onchange="renderTable()">
+    <option value="">All statuses</option>
+    <option value="In progress">In Progress</option>
+    <option value="In Planning">In Planning</option>
+    <option value="Live">Live</option>
+    <option value="On Hold">On Hold</option>
+    <option value="Proposed">Proposed</option>
+  </select>
+  <select class="filter-select" id="riskFilter" onchange="renderTable()">
+    <option value="">All risk levels</option>
+    <option value="red">🔴 Critical</option>
+    <option value="orange">🟠 At Risk</option>
+    <option value="green">🟢 On Track / Live</option>
+    <option value="white">⬜ Future</option>
+  </select>
+  <div class="month-tabs">
+    <button class="month-tab active" id="tabBoth" onclick="setMonth('all')">All Months</button>
+    <button class="month-tab" id="tabM1"  onclick="setMonth('m1')" style="display:none">—</button>
+    <button class="month-tab" id="tabM2"  onclick="setMonth('m2')" style="display:none">—</button>
+    <button class="month-tab" id="tabM3"  onclick="setMonth('m3')" style="display:none">—</button>
+  </div>
+
+</div>
+
+<div id="mainView">
+<div class="table-wrapper">
+  <table>
+    <thead>
+      <tr>
+        <th style="width:32px;cursor:default"></th>
+        <th style="width:28px;cursor:default"></th>
+        <th onclick="sortBy('client')"  id="th-client">Client</th>
+        <th onclick="sortBy('goLive')"  id="th-goLive" class="sorted">Go-Live ↑</th>
+        <th onclick="sortBy('days')"    id="th-days">Days Left</th>
+        <th onclick="sortBy('pm')"      id="th-pm">PM</th>
+        <th onclick="sortBy('int')"     id="th-int">INT Assigned</th>
+        <th onclick="sortBy('tickets')" id="th-tickets">INT Tickets</th>
+        <th onclick="sortBy('progress')"id="th-progress">Readiness</th>
+      </tr>
+    </thead>
+    <tbody id="tableBody">
+      <tr><td colspan="10"><div class="loading-state">
+        <div class="loading-spinner"></div>
+        <div>Connecting to Rocketlane…</div>
+      </div></td></tr>
+    </tbody>
+  </table>
+</div>
+</div><!-- /mainView -->
+
+
+<script>
+/* ══ TOOL IDs ══ */
+const DB_TOOL   = 'mcp__ace8c6f8-76f7-441f-9522-0b4ab858a385__execute_sql_read_only';
+const POLL_TOOL = 'mcp__ace8c6f8-76f7-441f-9522-0b4ab858a385__poll_sql_result';
+const JIRA_TOOL         = 'mcp__febcc92f-9040-4ea4-b33e-6aacbf9fcb04__searchJiraIssuesUsingJql';
+const JIRA_COMMENT_TOOL = 'mcp__febcc92f-9040-4ea4-b33e-6aacbf9fcb04__addCommentToJiraIssue';
+const JIRA_USER_TOOL    = 'mcp__febcc92f-9040-4ea4-b33e-6aacbf9fcb04__atlassianUserInfo';
+const JIRA_CLOUD = 'd97732e2-8fd4-4a35-8c6c-eb2a8214cb23';
+const JIRA_BASE  = 'https://vantaca.atlassian.net/browse/';
+
+/* ══ TEAM CLASSIFICATION ══ */
+const PM_EMAILS = new Set([
+  'cameron.williams@vantaca.com',
+  'janelle.james@vantaca.com',
+  'kalika.shelar@vantaca.com',
+  'alex.elliott@vantaca.com',
+  'bill.goodwin@vantaca.com',
+  'victor.majano@vantaca.com',
+  'rebecca.vancil@vantaca.com',
+  'dillon.harper@vantaca.com',
+]);
+
+const INT_EMAILS = new Set([
+  'ashley.byrd@vantaca.com',
+  'greg.gosnell@vantaca.com',
+  'peter.andersen@vantaca.com',
+  'nancy.bessette@vantaca.com',
+]);
+
+/* ══ PM BANK READINESS CHECKLIST ══
+   Each item carries timing metadata from Bank_Integration_Milestone_Date_Logic.md:
+     phase 1 → On-track = TASK_START + onTrackBd business days
+     phase 2 → On-track = TASK_START + onTrackBd business days
+     phase 3 → On-track = GL + onTrackCd calendar days (negative = before GL)
+   At-risk  = max(on-track + 7cd, GL - 21cd)
+   Critical = max(on-track + 14cd, GL - 14cd)
+   Blocker  = GL - 7cd
+*/
+const PM_CHECKLIST = [
+  { id: 'pm-jira-created',       name: 'JIRA Created & Accurate',                          phase: 1, onTrackBd: 5  },
+  { id: 'pm-permission-email',   name: 'Client Permission Email Sent',                     phase: 1, onTrackBd: 5  },
+  { id: 'pm-banks-notified',     name: 'Bank Notified',                                    phase: 1, onTrackBd: 5  },
+  { id: 'pm-transition-meeting', name: 'Transition Meeting Held (Operating Accounts Only)', phase: 2, onTrackBd: 15 },
+  { id: 'pm-transition-docs',    name: 'Bank transition documentation (If Applicable)',    phase: 2, onTrackBd: 20, optional: true },
+  { id: 'pm-ach-limits',         name: 'ACH Limits Confirmed',                             phase: 2, onTrackBd: 20 },
+  { id: 'pm-accounts-setup',     name: 'All Accounts Setup',                               phase: 3, onTrackCd: -30 },
+  { id: 'pm-lockbox',            name: 'Lockbox Setup',                                    phase: 3, onTrackCd: -30 },
+  { id: 'pm-positive-pay',       name: 'Positive Pay Setup (If Applicable)',               phase: 3, onTrackCd: -30, optional: true },
+  { id: 'pm-jira-complete',      name: 'Bank Jira Ticket Complete',                        phase: 3, onTrackCd: -30 },
+];
+
+/* Normalize a name for fuzzy RL↔PM matching */
+function normName(s) { return (s || '').toLowerCase().replace(/[^a-z0-9]/g, ''); }
+
+/* ══ BUSINESS DAY HELPER ══ */
+function addBusinessDays(date, n) {
+  let d = new Date(date);
+  let added = 0;
+  const step = n >= 0 ? 1 : -1;
+  const target = Math.abs(n);
+  while (added < target) {
+    d.setDate(d.getDate() + step);
+    if (d.getDay() !== 0 && d.getDay() !== 6) added++;  // skip Sat/Sun
+  }
+  return d;
+}
+
+/* ══ PM ITEM STATUS CALCULATOR ══
+   Implements the max() formula from Bank_Integration_Milestone_Date_Logic.md.
+   Returns 'green' | 'orange' | 'red' | 'blocker' (red pulsing at GL-7)
+   taskStartStr: Rocketlane task start_date string (YYYY-MM-DD), or null → GL - 60cd
+*/
+function computePMItemStatus(pmItem, taskStartStr, goLiveDateStr, isComplete) {
+  if (isComplete) return 'green';  // checked = always green
+
+  const today   = new Date(); today.setHours(0,0,0,0);
+  const gl      = parseLocalDate(goLiveDateStr);
+
+  // TASK_START: use RL value if available, else GL - 60cd
+  const ts = taskStartStr
+    ? parseLocalDate(taskStartStr)
+    : new Date(gl.getTime() - 60 * 86400000);
+
+  // On-track date
+  let onTrack;
+  if (pmItem.phase === 3) {
+    // Phase 3: GL + onTrackCd (e.g. -30 → GL - 30cd)
+    onTrack = new Date(gl.getTime() + pmItem.onTrackCd * 86400000);
+  } else {
+    // Phase 1 & 2: TASK_START + N business days
+    onTrack = addBusinessDays(ts, pmItem.onTrackBd);
+  }
+
+  const glMinus7  = new Date(gl.getTime() - 7  * 86400000);
+  const glMinus14 = new Date(gl.getTime() - 14 * 86400000);
+  const glMinus21 = new Date(gl.getTime() - 21 * 86400000);
+
+  const atRisk  = new Date(Math.max(
+    onTrack.getTime() + 7  * 86400000,
+    glMinus21.getTime()
+  ));
+  const critical = new Date(Math.max(
+    onTrack.getTime() + 14 * 86400000,
+    glMinus14.getTime()
+  ));
+
+  if (today > glMinus7)  return 'blocker';  // GL-7 and still not done
+  if (today > critical)  return 'red';
+  if (today > atRisk)    return 'orange';
+  return 'white';  // not yet due and not checked → grey (neutral)
+}
+
+/* ══ 10-STEP MILESTONES ══ */
+const MILESTONES = [
+  { step:1,  name:'JIRA Created & Accurate',        owner:'PM',     daysOffset:-58, orangeAt:3,  redAt:7  },
+  { step:2,  name:'Client Permission Email Sent',    owner:'PM',     daysOffset:-53, orangeAt:3,  redAt:7  },
+  { step:3,  name:'Transition Meeting Held',         owner:'PM',     daysOffset:-45, orangeAt:5,  redAt:10 },
+  { step:4,  name:'Readiness Validation Complete',   owner:'PM',     daysOffset:-30, orangeAt:5,  redAt:10 },
+  { step:5,  name:'Credentials Received',            owner:'INT',    daysOffset:-15, orangeAt:3,  redAt:5  },
+  { step:6,  name:'Testing Complete',                owner:'INT',    daysOffset:-7,  orangeAt:2,  redAt:4  },
+  { step:7,  name:'Settings > Interfaces Audited',   owner:'INT/PM', daysOffset:-5,  orangeAt:2,  redAt:3  },
+  { step:8,  name:'Ready for Go-Live',               owner:'INT',    daysOffset:-3,  orangeAt:1,  redAt:2  },
+  { step:9,  name:'Post Go-Live Testing Completed',  owner:'INT',    daysOffset:+4,  orangeAt:4,  redAt:7  },
+];
+
+/* ══ ROLLING 3-MONTH WINDOW ══
+   Always shows the next 3 full calendar months from today.
+   (If today is May 14 → window is June + July + August.)
+*/
+(function initWindow() {
+  const now  = new Date();
+  const m1   = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+  const m2   = new Date(now.getFullYear(), now.getMonth() + 2, 1);
+  const m3   = new Date(now.getFullYear(), now.getMonth() + 3, 1);
+  const mEnd = new Date(now.getFullYear(), now.getMonth() + 4, 0); // last day of m3
+
+  const pad  = n => String(n).padStart(2,'0');
+  window.WINDOW_START  = `${m1.getFullYear()}-${pad(m1.getMonth()+1)}-01`;
+  window.WINDOW_END    = `${mEnd.getFullYear()}-${pad(mEnd.getMonth()+1)}-${pad(mEnd.getDate())}`;
+  window.MONTH1_NUM    = m1.getMonth() + 1;
+  window.MONTH2_NUM    = m2.getMonth() + 1;
+  window.MONTH3_NUM    = m3.getMonth() + 1;
+  window.MONTH1_YEAR   = m1.getFullYear();
+  window.MONTH2_YEAR   = m2.getFullYear();
+  window.MONTH3_YEAR   = m3.getFullYear();
+  window.MONTH1_LABEL  = m1.toLocaleDateString('en-US', {month:'long', year:'numeric'});
+  window.MONTH2_LABEL  = m2.toLocaleDateString('en-US', {month:'long', year:'numeric'});
+  window.MONTH3_LABEL  = m3.toLocaleDateString('en-US', {month:'long', year:'numeric'});
+  window.MONTH1_SHORT  = m1.toLocaleDateString('en-US', {month:'short'});
+  window.MONTH2_SHORT  = m2.toLocaleDateString('en-US', {month:'short'});
+  window.MONTH3_SHORT  = m3.toLocaleDateString('en-US', {month:'short'});
+})();
+
+/* ══ STATE ══ */
+let allProjects     = [];
+let jiraTickets     = [];
+let jiraLoaded      = false;
+let jiraError       = null;
+let sortField       = 'goLive';
+let sortAsc         = true;
+let activeMonth     = 'all';
+let expandedRows    = new Set();
+// Milestone check state — keyed by "${projectId}-${step}"
+// { completed: bool, by: string, at: ISO string }
+// Persisted to localStorage; authoritative version synced from Jira comments on load.
+let milestoneState  = {};
+// Running notes state — keyed by projectId, value is array of { text, by, at }
+let notesState      = {};
+// PM Bank Readiness manual-override state — keyed by "${projectId}__${subtaskId}", value bool
+let brState         = {};
+let currentUserName = 'Team Member';
+
+
+/* ══ RESPONSE UNWRAPPER ══
+   callMcpTool in the artifact sandbox can return several shapes:
+     (a) Plain Databricks object  { statement_id, manifest, result, … }
+     (b) Content-block array      [{type:'text', text:'…json…'}]
+     (c) Content-block wrapper    { content: [{type:'text', text:'…json…'}] }
+     (d) Plain JSON string
+   We need to find the innermost object that has Databricks payload keys.
+*/
+function unwrap(raw) {
+  if (!raw) return null;
+
+  // Recursive helper: given any value, try to extract a meaningful object
+  function extract(val) {
+    if (val == null) return null;
+
+    // Plain string — try to parse as JSON
+    if (typeof val === 'string') {
+      const s = val.trim();
+      if (s.startsWith('{') || s.startsWith('[')) {
+        try { return extract(JSON.parse(s)); } catch {}
+      }
+      return null;
+    }
+
+    // Array — look through elements for text blocks or nested objects
+    if (Array.isArray(val)) {
+      for (const item of val) {
+        // Content block with text
+        const txt = item?.text || item?.content;
+        if (typeof txt === 'string') {
+          const inner = extract(txt);
+          if (inner) return inner;
+        }
+        // Direct object element
+        if (typeof item === 'object' && item !== null && !Array.isArray(item)) {
+          if (isDbResult(item)) return item;
+        }
+      }
+      return null;
+    }
+
+    // Object — check if it's a Databricks result or a wrapper
+    if (typeof val === 'object') {
+      if (isDbResult(val)) return val;
+
+      // Wrapper with a content array
+      if (Array.isArray(val.content)) {
+        return extract(val.content);
+      }
+      // Wrapper with a result key that IS a db result
+      if (val.result && isDbResult(val.result)) return val.result;
+      // Has issues array (Jira)
+      if (Array.isArray(val.issues)) return val;
+
+      // Last resort: return the object itself
+      return val;
+    }
+
+    return null;
+  }
+
+  // A "db result" has at least one of these keys
+  function isDbResult(obj) {
+    return obj && (
+      'statement_id' in obj ||
+      'manifest'     in obj ||
+      'issues'       in obj ||  // Jira
+      (obj.status && typeof obj.status === 'object')
+    );
+  }
+
+  const found = extract(raw);
+  return found !== null ? found : raw;
+}
+
+/* ══ DEMO MODE — No Databricks or Jira connector required ══
+   All data is generated statically from realistic demo records.
+   callMcp / runQuery / loadJira are replaced with local functions.
+*/
+
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+/* Stub — not called in demo mode but referenced in a few places */
+async function callMcp(tool, params, timeoutMs = 30000) {
+  if (tool.includes('atlassianUserInfo')) return { displayName: 'Ashley Byrd' };
+  if (tool.includes('addCommentToJiraIssue')) return { ok: true };
+  return { status: { state: 'SUCCEEDED' }, result: { data_array: [] } };
+}
+
+const LIVE_RL_DATA = {"projects":[{"id":"1101526","name":"The HOA Company 5/1/26","customer_company_name":"The HOA Company","status_label":"In Planning","progress_percentage":68,"go_live_date":"2026-05-01","company_id":"TheHoaCompany","pre_gl_total":90,"pre_gl_done":90},{"id":"1088651","name":"Oasis Community Management 5/1/26","customer_company_name":"Oasis Community Management","status_label":"In Planning","progress_percentage":70,"go_live_date":"2026-05-01","company_id":"OASIS","pre_gl_total":71,"pre_gl_done":71},{"id":"1119203","name":"Sunwest Management 5/1/26","customer_company_name":"Sunwest Management","status_label":"Live","progress_percentage":69,"go_live_date":"2026-05-01","company_id":"Sunwest","pre_gl_total":70,"pre_gl_done":70},{"id":"1100374","name":"Reliable Property Management Services 5/1","customer_company_name":"Reliable Property Management Services","status_label":"Proposed","progress_percentage":72,"go_live_date":"2026-05-01","company_id":"rpmsca","pre_gl_total":88,"pre_gl_done":88},{"id":"1120606","name":"Association Services BCS 5.1.26","customer_company_name":"Association Services BCS","status_label":"In Planning","progress_percentage":65,"go_live_date":"2026-05-01","company_id":"asbcs","pre_gl_total":89,"pre_gl_done":87},{"id":"1088621","name":"AS&A 5/1/26","customer_company_name":"AS&A","status_label":"In Planning","progress_percentage":78,"go_live_date":"2026-05-01","company_id":"asamgmt","pre_gl_total":90,"pre_gl_done":90},{"id":"1022575","name":"Scott Management Company 4/1/26","customer_company_name":"Scott Management Company","status_label":"In Planning","progress_percentage":62,"go_live_date":"2026-05-01","company_id":"scottmgmt","pre_gl_total":73,"pre_gl_done":68},{"id":"1088639","name":"BHE Management Corporation 5/1/26","customer_company_name":"BHE Management Corporation","status_label":"Live","progress_percentage":66,"go_live_date":"2026-05-01","company_id":"BHE","pre_gl_total":69,"pre_gl_done":69},{"id":"1088659","name":"Mihi Management 5/1/26","customer_company_name":"Mihi Management","status_label":"Live","progress_percentage":74,"go_live_date":"2026-05-01","company_id":"mihimanage","pre_gl_total":93,"pre_gl_done":93},{"id":"1039613","name":"Allied Property Group 5/1/26","customer_company_name":"Allied Property Group","status_label":"In Planning","progress_percentage":70,"go_live_date":"2026-05-01","company_id":"allied","pre_gl_total":82,"pre_gl_done":82},{"id":"1037276","name":"Paramount Community Management 6.1.26","customer_company_name":"Paramount Community Management","status_label":"In Planning","progress_percentage":50,"go_live_date":"2026-06-01","company_id":"paramount","pre_gl_total":122,"pre_gl_done":102},{"id":"1127654","name":"EnProVera Property Advisors 6/1/26","customer_company_name":"EnProVera Property Advisors","status_label":"In progress","progress_percentage":50,"go_live_date":"2026-06-01","company_id":"enprovera","pre_gl_total":112,"pre_gl_done":98},{"id":"1088747","name":"PMSI 6/1/26","customer_company_name":"PMSI","status_label":"In Planning","progress_percentage":50,"go_live_date":"2026-06-01","company_id":"PMSI","pre_gl_total":130,"pre_gl_done":111},{"id":"1088763","name":"Community Association Management (CAM) 6/1/26","customer_company_name":"Redwood Management Partners","status_label":"In Planning","progress_percentage":48,"go_live_date":"2026-06-01","company_id":"CAMHOA","pre_gl_total":134,"pre_gl_done":102},{"id":"1035020","name":"California Communities 6/1","customer_company_name":"California Communities","status_label":"In Planning","progress_percentage":39,"go_live_date":"2026-06-01","company_id":"calcomm","pre_gl_total":58,"pre_gl_done":47},{"id":"1168148","name":"Pristine Management 6/1/26","customer_company_name":"Pristine Management","status_label":"In Planning","progress_percentage":34,"go_live_date":"2026-06-01","company_id":"PRISTINEMGMT","pre_gl_total":55,"pre_gl_done":44},{"id":"1128723","name":"Superior Association Management 6/1/26","customer_company_name":"Superior Association Management","status_label":"In Planning","progress_percentage":50,"go_live_date":"2026-06-01","company_id":"superiormgmt","pre_gl_total":124,"pre_gl_done":108},{"id":"1128731","name":"Kokua Realty 6/1/26","customer_company_name":"Kokua Realty","status_label":"In progress","progress_percentage":47,"go_live_date":"2026-06-01","company_id":"kokua","pre_gl_total":114,"pre_gl_done":95},{"id":"1128736","name":"Cardinal Management Group 6/1/26","customer_company_name":"Cardinal Management Group","status_label":"In progress","progress_percentage":53,"go_live_date":"2026-06-01","company_id":"cardinalmg","pre_gl_total":124,"pre_gl_done":114},{"id":"1128739","name":"Red Leaf HOA Management 6/1/26","customer_company_name":"Red Leaf HOA Management","status_label":"In Planning","progress_percentage":49,"go_live_date":"2026-06-01","company_id":"Red Leaf","pre_gl_total":123,"pre_gl_done":103},{"id":"1139756","name":"Association Accounting Solutions, Inc. 6/1/26","customer_company_name":"Association Accounting Solutions, Inc.","status_label":"In progress","progress_percentage":54,"go_live_date":"2026-06-01","company_id":"associationaccountingsolutions","pre_gl_total":124,"pre_gl_done":112},{"id":"1088851","name":"The Andrews Organization 6/1/26","customer_company_name":"The Andrews Organization","status_label":"In Planning","progress_percentage":51,"go_live_date":"2026-06-01","company_id":"andrews","pre_gl_total":128,"pre_gl_done":107},{"id":"1100383","name":"Citizens Management Services, INC. 6.1.26","customer_company_name":"Citizens Management Services, INC.","status_label":"In progress","progress_percentage":50,"go_live_date":"2026-06-01","company_id":"citizens","pre_gl_total":125,"pre_gl_done":104},{"id":"1100389","name":"360 Community Management 6/1/26","customer_company_name":"360 Community Management","status_label":"In Planning","progress_percentage":49,"go_live_date":"2026-06-01","company_id":"360community","pre_gl_total":111,"pre_gl_done":90},{"id":"1186205","name":"HOA Community Links, LLC 7/1/26","customer_company_name":"HOA Community Links, LLC","status_label":"In Planning","progress_percentage":24,"go_live_date":"2026-07-01","company_id":"HOACOMMUNITYLINKS","pre_gl_total":112,"pre_gl_done":33},{"id":"1164381","name":"Association Management Group 7/1/26","customer_company_name":"Association Management Group, Inc.","status_label":"In Planning","progress_percentage":47,"go_live_date":"2026-07-01","company_id":"AMGworld","pre_gl_total":132,"pre_gl_done":71},{"id":"1162409","name":"CAMCO Services of NY 7/1/26","customer_company_name":"CAMCO Serivices of NY","status_label":"In Planning","progress_percentage":46,"go_live_date":"2026-07-01","company_id":"CAMCOSERVICESNY","pre_gl_total":129,"pre_gl_done":66},{"id":"1186236","name":"Summit Property Management 7.1.26","customer_company_name":"Summit Property Management","status_label":"In progress","progress_percentage":37,"go_live_date":"2026-07-01","company_id":"summit","pre_gl_total":75,"pre_gl_done":51},{"id":"1124286","name":"Essex Association Management 7/1/26","customer_company_name":"Essex Association Management","status_label":"In progress","progress_percentage":51,"go_live_date":"2026-07-01","company_id":"essex","pre_gl_total":127,"pre_gl_done":78},{"id":"1125072","name":"Steward Property Management 6/1/26","customer_company_name":"Steward Property Management","status_label":"In Planning","progress_percentage":1,"go_live_date":"2026-07-01","company_id":"stewardhoa","pre_gl_total":70,"pre_gl_done":1},{"id":"1186257","name":"Lux Management Services 7/1/26","customer_company_name":"Lux Management Services","status_label":"In progress","progress_percentage":27,"go_live_date":"2026-07-01","company_id":"LUXMGMTSERVICES","pre_gl_total":122,"pre_gl_done":37},{"id":"1168154","name":"Ocean Breeze Community Management 7/1/26","customer_company_name":"Ocean Breeze Community Management","status_label":"In progress","progress_percentage":29,"go_live_date":"2026-07-01","company_id":"OBCM","pre_gl_total":120,"pre_gl_done":48},{"id":"1168161","name":"Lake Holiday Property Owners Association 7/1/26","customer_company_name":"Lake Holiday Property Owners Association","status_label":"In Planning","progress_percentage":36,"go_live_date":"2026-07-01","company_id":"Lake Holiday Property Owners Association","pre_gl_total":122,"pre_gl_done":47},{"id":"1128746","name":"The Twenty Seven Group 7/1/26","customer_company_name":"The Twenty Seven Group","status_label":"In Planning","progress_percentage":49,"go_live_date":"2026-07-01","company_id":"the27grp","pre_gl_total":124,"pre_gl_done":77},{"id":"1128747","name":"PJ Morgan Real Estate 7/1/26","customer_company_name":"PJ Morgan Real Estate","status_label":"In progress","progress_percentage":52,"go_live_date":"2026-07-01","company_id":"pjmorgan","pre_gl_total":119,"pre_gl_done":77},{"id":"1168193","name":"Legacies Management 7/1/26","customer_company_name":"Legacies Management","status_label":"In Planning","progress_percentage":28,"go_live_date":"2026-07-01","company_id":"LEGACIESMANAGEMENT","pre_gl_total":138,"pre_gl_done":52},{"id":"1152854","name":"Gordon James Realty 7/1/26","customer_company_name":"Gordon James Realty","status_label":"In Planning","progress_percentage":39,"go_live_date":"2026-07-01","company_id":"GJR","pre_gl_total":131,"pre_gl_done":59},{"id":"1168226","name":"Reef Property Services 7/1/26","customer_company_name":"Reef Property Services","status_label":"In progress","progress_percentage":39,"go_live_date":"2026-07-01","company_id":"reef-ps","pre_gl_total":127,"pre_gl_done":55},{"id":"1128742","name":"Pines Property Management 7/1/26","customer_company_name":"Pines Property Management","status_label":"In Planning","progress_percentage":50,"go_live_date":"2026-07-01","company_id":"PINES","pre_gl_total":131,"pre_gl_done":75}],"teamRows":[{"project_id":"1088651","first_name":"Chelsea","last_name":"Edmonds","email_id":"chelsea.edmonds@vantaca.com"},{"project_id":"1088651","first_name":"","last_name":"","email_id":""},{"project_id":"1088651","first_name":"Alex","last_name":"Elliott","email_id":"alex.elliott@vantaca.com"},{"project_id":"1088651","first_name":"Matt","last_name":"Wright","email_id":"matt.wright@vantaca.com"},{"project_id":"1088651","first_name":"Ashley","last_name":"Rommel","email_id":"ashley.rommel@vantaca.com"},{"project_id":"1088651","first_name":"Kevin","last_name":"Duran","email_id":"kevin.duran@vantaca.com"},{"project_id":"1088651","first_name":"Peter","last_name":"Andersen","email_id":"peter.andersen@vantaca.com"},{"project_id":"1162409","first_name":"Cameron","last_name":"Williams","email_id":"cameron.williams@vantaca.com"},{"project_id":"1162409","first_name":"Matt","last_name":"Thomas","email_id":"matt.thomas@vantaca.com"},{"project_id":"1162409","first_name":"Ashley","last_name":"Byrd","email_id":"ashley.byrd@vantaca.com"},{"project_id":"1186236","first_name":"Cameron","last_name":"Williams","email_id":"cameron.williams@vantaca.com"},{"project_id":"1186236","first_name":"Peter","last_name":"Andersen","email_id":"peter.andersen@vantaca.com"},{"project_id":"1186236","first_name":"Anna","last_name":"Driscoll","email_id":"anna.driscoll@vantaca.com"},{"project_id":"1124286","first_name":"Victor","last_name":"Majano","email_id":"victor.majano@vantaca.com"},{"project_id":"1124286","first_name":"Ashley","last_name":"Byrd","email_id":"ashley.byrd@vantaca.com"},{"project_id":"1125072","first_name":"Cameron","last_name":"Williams","email_id":"cameron.williams@vantaca.com"},{"project_id":"1125072","first_name":"Peter","last_name":"Andersen","email_id":"peter.andersen@vantaca.com"},{"project_id":"1125072","first_name":"Ashley","last_name":"Byrd","email_id":"ashley.byrd@vantaca.com"},{"project_id":"1186257","first_name":"Victor","last_name":"Majano","email_id":"victor.majano@vantaca.com"},{"project_id":"1186257","first_name":"Peter","last_name":"Andersen","email_id":"peter.andersen@vantaca.com"},{"project_id":"1119203","first_name":"Matt","last_name":"Wright","email_id":"matt.wright@vantaca.com"},{"project_id":"1119203","first_name":"Janelle","last_name":"James","email_id":"janelle.james@vantaca.com"},{"project_id":"1119203","first_name":"Ashley","last_name":"Byrd","email_id":"ashley.byrd@vantaca.com"},{"project_id":"1119203","first_name":"Peter","last_name":"Andersen","email_id":"peter.andersen@vantaca.com"},{"project_id":"1168154","first_name":"Janelle","last_name":"James","email_id":"janelle.james@vantaca.com"},{"project_id":"1168154","first_name":"Peter","last_name":"Andersen","email_id":"peter.andersen@vantaca.com"},{"project_id":"1168161","first_name":"Alex","last_name":"Elliott","email_id":"alex.elliott@vantaca.com"},{"project_id":"1168161","first_name":"Cameron","last_name":"Williams","email_id":"cameron.williams@vantaca.com"},{"project_id":"1168161","first_name":"Peter","last_name":"Andersen","email_id":"peter.andersen@vantaca.com"},{"project_id":"1128746","first_name":"Kalika","last_name":"Shelar","email_id":"kalika.shelar@vantaca.com"},{"project_id":"1128746","first_name":"Peter","last_name":"Andersen","email_id":"peter.andersen@vantaca.com"},{"project_id":"1128746","first_name":"Ashley","last_name":"Byrd","email_id":"ashley.byrd@vantaca.com"},{"project_id":"1128747","first_name":"Janelle","last_name":"James","email_id":"janelle.james@vantaca.com"},{"project_id":"1128747","first_name":"Peter","last_name":"Andersen","email_id":"peter.andersen@vantaca.com"},{"project_id":"1128747","first_name":"Ashley","last_name":"Byrd","email_id":"ashley.byrd@vantaca.com"},{"project_id":"1168193","first_name":"Kalika","last_name":"Shelar","email_id":"kalika.shelar@vantaca.com"},{"project_id":"1168193","first_name":"Peter","last_name":"Andersen","email_id":"peter.andersen@vantaca.com"},{"project_id":"1152854","first_name":"Bill","last_name":"Goodwin","email_id":"bill.goodwin@vantaca.com"},{"project_id":"1152854","first_name":"Ashley","last_name":"Byrd","email_id":"ashley.byrd@vantaca.com"},{"project_id":"1100374","first_name":"Alex","last_name":"Elliott","email_id":"alex.elliott@vantaca.com"},{"project_id":"1100374","first_name":"Cameron","last_name":"Williams","email_id":"cameron.williams@vantaca.com"},{"project_id":"1100374","first_name":"Peter","last_name":"Andersen","email_id":"peter.andersen@vantaca.com"},{"project_id":"1100374","first_name":"Ashley","last_name":"Byrd","email_id":"ashley.byrd@vantaca.com"},{"project_id":"1120606","first_name":"Alex","last_name":"Elliott","email_id":"alex.elliott@vantaca.com"},{"project_id":"1120606","first_name":"Peter","last_name":"Andersen","email_id":"peter.andersen@vantaca.com"},{"project_id":"1120606","first_name":"Ashley","last_name":"Byrd","email_id":"ashley.byrd@vantaca.com"},{"project_id":"1168226","first_name":"Rebecca","last_name":"Vancil","email_id":"rebecca.vancil@vantaca.com"},{"project_id":"1168226","first_name":"Peter","last_name":"Andersen","email_id":"peter.andersen@vantaca.com"},{"project_id":"1088621","first_name":"Kalika","last_name":"Shelar","email_id":"kalika.shelar@vantaca.com"},{"project_id":"1088621","first_name":"Peter","last_name":"Andersen","email_id":"peter.andersen@vantaca.com"},{"project_id":"1022575","first_name":"Bill","last_name":"Goodwin","email_id":"bill.goodwin@vantaca.com"},{"project_id":"1022575","first_name":"Peter","last_name":"Andersen","email_id":"peter.andersen@vantaca.com"},{"project_id":"1022575","first_name":"Ashley","last_name":"Byrd","email_id":"ashley.byrd@vantaca.com"},{"project_id":"1088639","first_name":"Janelle","last_name":"James","email_id":"janelle.james@vantaca.com"},{"project_id":"1088639","first_name":"Peter","last_name":"Andersen","email_id":"peter.andersen@vantaca.com"},{"project_id":"1088639","first_name":"Ashley","last_name":"Byrd","email_id":"ashley.byrd@vantaca.com"},{"project_id":"1037276","first_name":"Bill","last_name":"Goodwin","email_id":"bill.goodwin@vantaca.com"},{"project_id":"1037276","first_name":"Peter","last_name":"Andersen","email_id":"peter.andersen@vantaca.com"},{"project_id":"1127654","first_name":"Janelle","last_name":"James","email_id":"janelle.james@vantaca.com"},{"project_id":"1127654","first_name":"Peter","last_name":"Andersen","email_id":"peter.andersen@vantaca.com"},{"project_id":"1127654","first_name":"Ashley","last_name":"Byrd","email_id":"ashley.byrd@vantaca.com"},{"project_id":"1088747","first_name":"Alex","last_name":"Elliott","email_id":"alex.elliott@vantaca.com"},{"project_id":"1088747","first_name":"Peter","last_name":"Andersen","email_id":"peter.andersen@vantaca.com"},{"project_id":"1088763","first_name":"Kalika","last_name":"Shelar","email_id":"kalika.shelar@vantaca.com"},{"project_id":"1088763","first_name":"Cameron","last_name":"Williams","email_id":"cameron.williams@vantaca.com"},{"project_id":"1088763","first_name":"Peter","last_name":"Andersen","email_id":"peter.andersen@vantaca.com"},{"project_id":"1088763","first_name":"Ashley","last_name":"Byrd","email_id":"ashley.byrd@vantaca.com"},{"project_id":"1035020","first_name":"Alex","last_name":"Elliott","email_id":"alex.elliott@vantaca.com"},{"project_id":"1035020","first_name":"Peter","last_name":"Andersen","email_id":"peter.andersen@vantaca.com"},{"project_id":"1035020","first_name":"Ashley","last_name":"Byrd","email_id":"ashley.byrd@vantaca.com"},{"project_id":"1168148","first_name":"Bill","last_name":"Goodwin","email_id":"bill.goodwin@vantaca.com"},{"project_id":"1168148","first_name":"Peter","last_name":"Andersen","email_id":"peter.andersen@vantaca.com"},{"project_id":"1128723","first_name":"Kalika","last_name":"Shelar","email_id":"kalika.shelar@vantaca.com"},{"project_id":"1128723","first_name":"Peter","last_name":"Andersen","email_id":"peter.andersen@vantaca.com"},{"project_id":"1128723","first_name":"Ashley","last_name":"Byrd","email_id":"ashley.byrd@vantaca.com"},{"project_id":"1128731","first_name":"Kalika","last_name":"Shelar","email_id":"kalika.shelar@vantaca.com"},{"project_id":"1128731","first_name":"Janelle","last_name":"James","email_id":"janelle.james@vantaca.com"},{"project_id":"1128731","first_name":"Peter","last_name":"Andersen","email_id":"peter.andersen@vantaca.com"},{"project_id":"1128731","first_name":"Ashley","last_name":"Byrd","email_id":"ashley.byrd@vantaca.com"},{"project_id":"1128736","first_name":"Victor","last_name":"Majano","email_id":"victor.majano@vantaca.com"},{"project_id":"1128736","first_name":"Peter","last_name":"Andersen","email_id":"peter.andersen@vantaca.com"},{"project_id":"1128736","first_name":"Ashley","last_name":"Byrd","email_id":"ashley.byrd@vantaca.com"},{"project_id":"1128739","first_name":"Alex","last_name":"Elliott","email_id":"alex.elliott@vantaca.com"},{"project_id":"1128739","first_name":"Peter","last_name":"Andersen","email_id":"peter.andersen@vantaca.com"},{"project_id":"1128739","first_name":"Ashley","last_name":"Byrd","email_id":"ashley.byrd@vantaca.com"},{"project_id":"1139756","first_name":"Victor","last_name":"Majano","email_id":"victor.majano@vantaca.com"},{"project_id":"1139756","first_name":"Peter","last_name":"Andersen","email_id":"peter.andersen@vantaca.com"},{"project_id":"1139756","first_name":"Ashley","last_name":"Byrd","email_id":"ashley.byrd@vantaca.com"},{"project_id":"1088851","first_name":"Cameron","last_name":"Williams","email_id":"cameron.williams@vantaca.com"},{"project_id":"1088851","first_name":"Peter","last_name":"Andersen","email_id":"peter.andersen@vantaca.com"},{"project_id":"1088851","first_name":"Ashley","last_name":"Byrd","email_id":"ashley.byrd@vantaca.com"},{"project_id":"1100383","first_name":"Victor","last_name":"Majano","email_id":"victor.majano@vantaca.com"},{"project_id":"1100383","first_name":"Peter","last_name":"Andersen","email_id":"peter.andersen@vantaca.com"},{"project_id":"1100383","first_name":"Ashley","last_name":"Byrd","email_id":"ashley.byrd@vantaca.com"},{"project_id":"1100389","first_name":"Bill","last_name":"Goodwin","email_id":"bill.goodwin@vantaca.com"},{"project_id":"1100389","first_name":"Peter","last_name":"Andersen","email_id":"peter.andersen@vantaca.com"},{"project_id":"1100389","first_name":"Ashley","last_name":"Byrd","email_id":"ashley.byrd@vantaca.com"},{"project_id":"1039613","first_name":"Kalika","last_name":"Shelar","email_id":"kalika.shelar@vantaca.com"},{"project_id":"1039613","first_name":"Cameron","last_name":"Williams","email_id":"cameron.williams@vantaca.com"},{"project_id":"1039613","first_name":"Peter","last_name":"Andersen","email_id":"peter.andersen@vantaca.com"},{"project_id":"1039613","first_name":"Ashley","last_name":"Byrd","email_id":"ashley.byrd@vantaca.com"},{"project_id":"1101526","first_name":"Bill","last_name":"Goodwin","email_id":"bill.goodwin@vantaca.com"},{"project_id":"1101526","first_name":"Peter","last_name":"Andersen","email_id":"peter.andersen@vantaca.com"},{"project_id":"1164381","first_name":"Bill","last_name":"Goodwin","email_id":"bill.goodwin@vantaca.com"},{"project_id":"1164381","first_name":"Peter","last_name":"Andersen","email_id":"peter.andersen@vantaca.com"},{"project_id":"1186205","first_name":"Bill","last_name":"Goodwin","email_id":"bill.goodwin@vantaca.com"},{"project_id":"1186205","first_name":"Peter","last_name":"Andersen","email_id":"peter.andersen@vantaca.com"},{"project_id":"1088659","first_name":"Victor","last_name":"Majano","email_id":"victor.majano@vantaca.com"},{"project_id":"1088659","first_name":"Peter","last_name":"Andersen","email_id":"peter.andersen@vantaca.com"},{"project_id":"1128742","first_name":"Alex","last_name":"Elliott","email_id":"alex.elliott@vantaca.com"},{"project_id":"1128742","first_name":"Janelle","last_name":"James","email_id":"janelle.james@vantaca.com"},{"project_id":"1128742","first_name":"Peter","last_name":"Andersen","email_id":"peter.andersen@vantaca.com"},{"project_id":"1128742","first_name":"Ashley","last_name":"Byrd","email_id":"ashley.byrd@vantaca.com"}],"brMap":{"1022575":{"Banc of California (Banking)":{"rlTaskId":"32122813","taskStart":"2026-01-21","items":[]},"HomeWise (Closings)":{"rlTaskId":"32122816","taskStart":"2026-01-21","items":[]},"Optimal (Printing)":{"rlTaskId":"32122818","taskStart":"2026-01-21","items":[]},"Vantaca Pay (Homeowner Payments)":{"rlTaskId":"32122814","taskStart":"2026-01-21","items":[]}},"1035020":{"Axela (Collections)":{"rlTaskId":"37093122","taskStart":"2026-04-09","items":[{"id":"37093118","name":"Axela PM Checklist","rlStatus":"Completed"}]},"Bank Integration Readiness":{"rlTaskId":"36463259","taskStart":"2026-05-31","items":[]},"Bank United (Banking)":{"rlTaskId":"37093103","taskStart":"2026-04-09","items":[]},"Click Pay (Homeowner Payments)":{"rlTaskId":"37093107","taskStart":"2026-04-09","items":[{"id":"37093105","name":"Click Pay PM Checklist IF Using ClickPay For Homeowner Electronic Payments","rlStatus":"Completed"}]},"Click Pay (Lockbox)":{"rlTaskId":"37093109","taskStart":"2026-04-09","items":[]},"HomeWise (Closings)":{"rlTaskId":"37093113","taskStart":"2026-04-09","items":[{"id":"37093111","name":"HomeWise PM Checklist","rlStatus":"To do"}]}},"1037276":{"Axela (Collections)":{"rlTaskId":"35049447","taskStart":"2026-03-03","items":[{"id":"35049422","name":"Axela PM Checklist","rlStatus":"Completed"}]},"First Citizens Bank (Banking)":{"rlTaskId":"35049307","taskStart":"2026-03-03","items":[]},"HomeWise (Closings)":{"rlTaskId":"35049391","taskStart":"2026-03-03","items":[{"id":"35049363","name":"HomeWise PM Checklist","rlStatus":"Completed"}]},"Vantaca Pay (Homeowner Payments)":{"rlTaskId":"35049337","taskStart":"2026-03-03","items":[]}},"1039613":{"Association READY (Ready Resale)":{"rlTaskId":"31626939","taskStart":"2026-02-16","items":[{"id":"31626938","name":"HomeWise PM Checklist","rlStatus":"Completed"}]},"Bank United (Banking)":{"rlTaskId":"31626930","taskStart":"2026-02-03","items":[]},"City National Bank (Banking)":{"rlTaskId":"31626931","taskStart":"2026-02-10","items":[]},"Click Pay (Homeowner Payments)":{"rlTaskId":"31626935","taskStart":"2026-02-17","items":[{"id":"31626934","name":"Click Pay PM Checklist IF Using ClickPay For Homeowner Electronic Payments","rlStatus":"Completed"}]},"Popular Bank (Banking)":{"rlTaskId":"31626932","taskStart":"2026-02-02","items":[]},"Truist (Banking)":{"rlTaskId":"33034310","taskStart":"2026-03-04","items":[]},"Valley National Bank (Banking)":{"rlTaskId":"31626936","taskStart":"2026-02-02","items":[]},"Vantaca Lockbox (Lockbox)":{"rlTaskId":"31626933","taskStart":"2026-02-10","items":[]},"Vantaca Pay (Homeowner Payments)":{"rlTaskId":"31626937","taskStart":"2026-02-02","items":[]}},"1088621":{"First Citizens Bank (Banking)":{"rlTaskId":"33150464","taskStart":"2026-03-02","items":[]},"HomeWise (Closings)":{"rlTaskId":"33150467","taskStart":"2026-03-02","items":[{"id":"33150466","name":"HomeWise PM Checklist","rlStatus":"Completed"}]},"Page Per Page (Printing)":{"rlTaskId":"33150471","taskStart":"2026-03-02","items":[{"id":"33150468","name":"Page Per Page PM Checklist","rlStatus":"Completed"}]},"Vantaca Pay (Homeowner Payments)":{"rlTaskId":"33150465","taskStart":"2026-03-02","items":[]}},"1088639":{"First Citizens Bank (Banking)":{"rlTaskId":"33273092","taskStart":"2026-02-01","items":[]},"HOA Mailers (Printing)":{"rlTaskId":"33273096","taskStart":"2026-02-01","items":[]}},"1088651":{"HomeWise (Closings)":{"rlTaskId":"33411144","taskStart":"2026-01-29","items":[{"id":"33411143","name":"HomeWise PM Checklist","rlStatus":"Completed"}]},"Southdata (Printing)":{"rlTaskId":"33411146","taskStart":"2026-01-29","items":[{"id":"33411145","name":"Southdata PM Checklist","rlStatus":"Completed"}]},"Sunwest Bank (Banking)":{"rlTaskId":"33411141","taskStart":"2026-04-30","items":[]},"Vantaca Pay (Homeowner Payments)":{"rlTaskId":"33411142","taskStart":"2026-03-31","items":[]}},"1088659":{"Avid - Strongroom (AP)":{"rlTaskId":"33113410","taskStart":"2026-03-03","items":[{"id":"33113409","name":"Strongroom PM Checklist","rlStatus":"Completed"}]},"Pacific Premier Bank (Banking)":{"rlTaskId":"33113407","taskStart":"2026-03-03","items":[]},"Vantaca Pay (Homeowner Payments)":{"rlTaskId":"33113408","taskStart":"2026-03-02","items":[]},"HomeWise (Closings)":{"rlTaskId":"33113412","taskStart":"2026-03-03","items":[{"id":"33113411","name":"HomeWise PM Checklist","rlStatus":"Completed"}]}},"1088747":{"Alliance Bank (Banking)":{"rlTaskId":"33493623","taskStart":"2026-02-23","items":[]},"Vantaca Pay (Homeowner Payments)":{"rlTaskId":"33493625","taskStart":"2026-01-30","items":[]}},"1088763":{"Alliance Bank (Banking)":{"rlTaskId":"33372672","taskStart":"2026-01-28","items":[]},"Avid - Invoice Pay":{"rlTaskId":"33372675","taskStart":null,"items":[{"id":"33372674","name":"Strongroom PM Checklist","rlStatus":"Completed"}]},"Banc of California (Banking)":{"rlTaskId":"33372673","taskStart":"2026-01-28","items":[]},"Front Steps (Portal)":{"rlTaskId":"33372681","taskStart":"2026-01-28","items":[{"id":"33372680","name":"Front Steps PM Checklist","rlStatus":"Completed"}]},"HomeWise (Closings)":{"rlTaskId":"33372677","taskStart":"2026-01-28","items":[{"id":"33372676","name":"HomeWise PM Checklist","rlStatus":"To do"}]},"Optimal Outsource (Printing)":{"rlTaskId":"33372679","taskStart":"2026-01-28","items":[{"id":"33372678","name":"Optimal PM Checlist","rlStatus":"Completed"}]}},"1088851":{"Bank United (Banking)":{"rlTaskId":"33503215","taskStart":"2026-01-30","items":[]},"Click Pay (Homeowner Payments)":{"rlTaskId":"33503218","taskStart":"2026-01-30","items":[]},"National Cooperative Bank (Banking)":{"rlTaskId":"33503216","taskStart":null,"items":[]}},"1100374":{"Alliance Bank (Banking)":{"rlTaskId":"33624880","taskStart":"2026-03-01","items":[]},"Avid - Strongroom (AP)":{"rlTaskId":"33624905","taskStart":"2026-03-01","items":[{"id":"33624899","name":"Strongroom PM Checklist","rlStatus":"Completed"}]},"First Citizens Bank (Banking)":{"rlTaskId":"33624889","taskStart":"2026-03-01","items":[]},"HomeWise (Closings)":{"rlTaskId":"33624916","taskStart":"2026-03-01","items":[{"id":"33624911","name":"HomeWise PM Checklist","rlStatus":"Completed"}]},"Vantaca Pay (Homeowner Payments)":{"rlTaskId":"33624894","taskStart":"2026-03-01","items":[]},"HOA Mailers (Printing)":{"rlTaskId":"33624920","taskStart":"2026-03-01","items":[]}},"1100383":{"Alliance Bank (Banking)":{"rlTaskId":"33563676","taskStart":"2026-04-06","items":[]},"CondoCerts (Closings)":{"rlTaskId":"33563683","taskStart":"2026-04-06","items":[{"id":"33563681","name":"CondoCert PM Checklist","rlStatus":"Completed"}]},"HOA Mailers (Printing)":{"rlTaskId":"33563685","taskStart":"2026-04-06","items":[]},"Vantaca Pay (Homeowner Payments)":{"rlTaskId":"33563678","taskStart":"2026-04-06","items":[]}},"1100389":{"CondoCerts (Closings)":{"rlTaskId":"36868893","taskStart":null,"items":[{"id":"36868899","name":"CondoCerts PM Checklist","rlStatus":"Completed"}]},"First Citizens Bank (Banking)":{"rlTaskId":"33834078","taskStart":"2026-02-09","items":[]},"Vantaca Pay (Homeowner Payments)":{"rlTaskId":"33834079","taskStart":"2026-02-09","items":[]}},"1101526":{"CondoCerts (Closings)":{"rlTaskId":"33897666","taskStart":"2026-02-09","items":[{"id":"33897664","name":"CondoCert PM Checklist","rlStatus":"Completed"}]},"First Resource Bank (Banking)":{"rlTaskId":"33897659","taskStart":"2026-02-09","items":[]},"Vantaca Pay (Homeowner Payments)":{"rlTaskId":"33897662","taskStart":"2026-02-09","items":[]}},"1119203":{"American Momentum Bank (Banking)":{"rlTaskId":"34003437","taskStart":"2026-02-11","items":[]},"HomeWise (Closings)":{"rlTaskId":"34003443","taskStart":"2026-02-11","items":[]},"Vantaca Lockbox (Lockbox)":{"rlTaskId":"34003438","taskStart":"2026-03-02","items":[]},"Vantaca Pay (Homeowner Payments)":{"rlTaskId":"34003439","taskStart":"2026-02-11","items":[]}},"1120606":{"American Momentum Bank (Banking)":{"rlTaskId":"34063969","taskStart":"2026-02-12","items":[]},"First Citizens Bank (Banking)":{"rlTaskId":"34063971","taskStart":"2026-02-12","items":[]},"Vantaca pay":{"rlTaskId":"34069658","taskStart":"2026-03-06","items":[]}},"1124286":{"First Citizens Bank (Banking)":{"rlTaskId":"35288806","taskStart":"2026-04-03","items":[]}},"1127654":{"OZK (Banking)":{"rlTaskId":"35507835","taskStart":null,"items":[]},"Vantaca Lockbox (Lockbox)":{"rlTaskId":"34325537","taskStart":"2026-03-26","items":[]}},"1128723":{"CheckAlt (Lockbox)":{"rlTaskId":"35696377","taskStart":"2026-04-22","items":[]},"CondoCerts (Closings)":{"rlTaskId":"34693429","taskStart":"2026-04-01","items":[{"id":"34693426","name":"CondoCert PM Checklist","rlStatus":"To do"}]},"South State Bank (Banking)":{"rlTaskId":"34693422","taskStart":"2026-04-01","items":[]},"Vantaca Pay (Homeowner Payments)":{"rlTaskId":"34693424","taskStart":"2026-04-01","items":[]}},"1128731":{"CondoCerts (Closings)":{"rlTaskId":"34973107","taskStart":"2026-03-03","items":[{"id":"34973106","name":"CondoCert PM Checklist","rlStatus":"To do"}]},"First Citizens Bank (Banking)":{"rlTaskId":"34973104","taskStart":"2026-03-03","items":[]},"HOA Mailers (Printing)":{"rlTaskId":"34973109","taskStart":"2026-03-03","items":[]}},"1128736":{"Avid - Strongroom (AP)":{"rlTaskId":"35369453","taskStart":"2026-04-01","items":[{"id":"35369530","name":"Strongroom PM Checklist","rlStatus":"Completed"}]},"Axela (Collections)":{"rlTaskId":"35138107","taskStart":"2026-04-01","items":[{"id":"35138103","name":"Axela PM Checklist","rlStatus":"Completed"}]},"Vantaca Pay (Homeowner Payments)":{"rlTaskId":"35138101","taskStart":"2026-04-01","items":[]},"Western Alliance Bank (Banking)":{"rlTaskId":"35138099","taskStart":"2026-04-01","items":[]},"VIVE (Vendor Management)":{"rlTaskId":"35138114","taskStart":"2026-04-01","items":[{"id":"35138110","name":"VIVE PM Checklist","rlStatus":"Completed"}]}},"1128739":{"Axela (Collections)":{"rlTaskId":"34969114","taskStart":"2026-03-03","items":[{"id":"34969112","name":"Axela PM Checklist","rlStatus":"Completed"}]},"Page Per Page (Printing)":{"rlTaskId":"34969111","taskStart":"2026-03-03","items":[{"id":"34969108","name":"Page Per Page PM Checklist","rlStatus":"Completed"}]},"Pinnacle Bank (Banking)":{"rlTaskId":"34969104","taskStart":"2026-03-03","items":[]},"Vantaca Lockbox (Lockbox)":{"rlTaskId":"34969105","taskStart":"2026-03-03","items":[]}},"1128742":{"Association Ready (Ready Resale)":{"rlTaskId":"34683622","taskStart":"2026-03-30","items":[]},"Popular Bank (Banking)":{"rlTaskId":"34660119","taskStart":"2026-03-23","items":[]},"Southdata (Printing)":{"rlTaskId":"34660124","taskStart":"2026-03-23","items":[{"id":"34660123","name":"Southdata PM Checklist","rlStatus":"To do"}]},"Vantaca Pay (Homeowner Payments)":{"rlTaskId":"34660122","taskStart":"2026-03-23","items":[]}},"1128746":{"HomeWise (Closings)":{"rlTaskId":"35502367","taskStart":"2026-04-07","items":[{"id":"35502366","name":"HomeWise PM Checklist","rlStatus":"To do"}]},"Vantaca Pay (Homeowner Payments)":{"rlTaskId":"35502364","taskStart":"2026-04-14","items":[]},"Vantaca Lockbox (Lockbox)":{"rlTaskId":"38755698","taskStart":"2026-05-20","items":[]}},"1128747":{"Axela (Collections)":{"rlTaskId":"34695240","taskStart":"2026-02-26","items":[{"id":"34695239","name":"Axela PM Checklist","rlStatus":"To do"}]},"CondoCerts (Closings)":{"rlTaskId":"34695238","taskStart":"2026-02-26","items":[{"id":"34695237","name":"CondoCert PM Checklist","rlStatus":"To do"}]},"South State Bank (Banking)":{"rlTaskId":"34695235","taskStart":"2026-02-26","items":[]},"Vantaca Pay (Homeowner Payments)":{"rlTaskId":"34695236","taskStart":"2026-02-26","items":[]}},"1139756":{"Avid - Strongroom (AP)":{"rlTaskId":"35139990","taskStart":"2026-04-01","items":[{"id":"35140010","name":"Strongroom PM Checklist","rlStatus":"Completed"}]},"HomeWise (Closings)":{"rlTaskId":"34742815","taskStart":"2026-04-01","items":[{"id":"34742814","name":"HomeWise PM Checklist","rlStatus":"Completed"}]},"Southdata (Printing)":{"rlTaskId":"34742819","taskStart":"2026-04-01","items":[{"id":"34742818","name":"Southdata PM Checklist","rlStatus":"Completed"}]},"Vantaca Pay (Homeowner Payments)":{"rlTaskId":"34742811","taskStart":"2026-04-01","items":[]}},"1152854":{"Bank United (Banking)":{"rlTaskId":"35573306","taskStart":"2026-03-12","items":[]},"HomeWise (Closings)":{"rlTaskId":"35573314","taskStart":"2026-03-12","items":[{"id":"35573312","name":"HomeWise PM Checklist","rlStatus":"To do"}]},"Vantaca Lockbox (Lockbox)":{"rlTaskId":"35573308","taskStart":"2026-03-12","items":[]}},"1162409":{"VIVE (Vendor Management)":{"rlTaskId":"35576271","taskStart":"2026-03-12","items":[{"id":"35576270","name":"VIVE PM Checklist","rlStatus":"Completed"}]},"Vantaca Lockbox (Lockbox)":{"rlTaskId":"35576267","taskStart":"2026-03-12","items":[]},"Webster Bank (Banking)":{"rlTaskId":"35576269","taskStart":"2026-03-12","items":[]}},"1164381":{"CondoCerts (Closings)":{"rlTaskId":"35678665","taskStart":"2026-03-16","items":[{"id":"35678664","name":"CondoCert PM Checklist","rlStatus":"Completed"}]},"First Citizens Bank (Banking)":{"rlTaskId":"35678661","taskStart":"2026-03-16","items":[]},"Southdata (Printing)":{"rlTaskId":"35678667","taskStart":"2026-03-16","items":[{"id":"35678666","name":"Southdata PM Checklist","rlStatus":"Completed"}]},"Vantaca Pay (Homeowner Payments)":{"rlTaskId":"35678662","taskStart":"2026-03-16","items":[]}},"1168148":{"First Citizens Bank (Banking)":{"rlTaskId":"37099444","taskStart":"2026-04-09","items":[]},"HomeWise (Closings)":{"rlTaskId":"37099456","taskStart":"2026-04-09","items":[{"id":"37099453","name":"HomeWise PM Checklist","rlStatus":"Completed"}]},"Vantaca Pay (Homeowner Payments)":{"rlTaskId":"37099449","taskStart":"2026-04-09","items":[]}},"1168154":{"BuildingLink (Portal)":{"rlTaskId":"36025163","taskStart":"2026-04-21","items":[{"id":"36025161","name":"BuildingLink PM Checklist","rlStatus":"To do"}]},"South State Bank (Banking)":{"rlTaskId":"36025157","taskStart":"2026-04-21","items":[]},"Truist (Banking)":{"rlTaskId":"36025156","taskStart":"2026-04-21","items":[]},"Valley National Bank (Banking)":{"rlTaskId":"36025158","taskStart":"2026-04-21","items":[]},"Vantaca Lockbox (Lockbox)":{"rlTaskId":"36025153","taskStart":"2026-04-21","items":[]},"Vantaca Pay (Homeowner Payments)":{"rlTaskId":"36025159","taskStart":"2026-04-21","items":[]}},"1168161":{"Bank Integration Readiness Task":{"rlTaskId":"35741858","taskStart":"2026-05-01","items":[]},"Vantaca Pay (Homeowner Payments)":{"rlTaskId":"36338207","taskStart":"2026-04-28","items":[]}},"1168193":{"CondoCerts (Closings)":{"rlTaskId":"36288726","taskStart":"2026-05-05","items":[{"id":"36288724","name":"CondoCert PM Checklist","rlStatus":"To do"}]},"First Citizens Bank (Banking)":{"rlTaskId":"36288719","taskStart":"2026-03-30","items":[]},"Vantaca Pay (Homeowner Payments)":{"rlTaskId":"36288722","taskStart":"2026-05-12","items":[]}},"1168226":{"Bank United (Banking)":{"rlTaskId":"35975627","taskStart":"2026-03-23","items":[]},"HomeWise (Closings)":{"rlTaskId":"35975640","taskStart":"2026-03-23","items":[{"id":"35975639","name":"HomeWise PM Checklist","rlStatus":"Completed"}]},"South State Bank (Banking)":{"rlTaskId":"35975631","taskStart":"2026-03-23","items":[]},"Truist (Banking)":{"rlTaskId":"35975628","taskStart":"2026-03-23","items":[]},"Valley National Bank (Banking)":{"rlTaskId":"35975632","taskStart":"2026-03-23","items":[]},"Vantaca Lockbox (Lockbox)":{"rlTaskId":"36037309","taskStart":"2026-03-23","items":[]},"Vantaca Pay (Homeowner Payments)":{"rlTaskId":"35975635","taskStart":"2026-03-23","items":[]},"Western Alliance Bank (Banking)":{"rlTaskId":"35975625","taskStart":"2026-03-23","items":[]}},"1186205":{"First Citizens Bank (Banking)":{"rlTaskId":"36294556","taskStart":"2026-03-30","items":[]},"Optimal Outsource (Printing)":{"rlTaskId":"36294558","taskStart":"2026-03-30","items":[{"id":"36294557","name":"Optimal PM Checlist","rlStatus":"To do"}]}},"1186236":{"CondoCerts (Closings)":{"rlTaskId":"37107983","taskStart":"2026-04-09","items":[{"id":"37107980","name":"CondoCert PM Checklist","rlStatus":"Completed"}]},"Vantaca Pay (Homeowner Payments)":{"rlTaskId":"37107979","taskStart":"2026-04-09","items":[]}},"1186257":{"Avid - Strongroom (AP)":{"rlTaskId":"37027160","taskStart":"2026-05-06","items":[{"id":"37027158","name":"Strongroom PM Checklist","rlStatus":"To do"}]},"Axela (Collections)":{"rlTaskId":"37027171","taskStart":"2026-05-06","items":[{"id":"37027168","name":"Axela PM Checklist","rlStatus":"To do"}]},"City National Bank (Banking)":{"rlTaskId":"37027145","taskStart":"2026-05-06","items":[]},"HomeWise (Closings)":{"rlTaskId":"37027163","taskStart":"2026-05-06","items":[{"id":"37027162","name":"HomeWise PM Checklist","rlStatus":"To do"}]},"South State Bank (Banking)":{"rlTaskId":"37027151","taskStart":"2026-05-06","items":[]},"Vantaca Lockbox (Lockbox)":{"rlTaskId":"37027148","taskStart":"2026-05-01","items":[]},"Vantaca Pay (Homeowner Payments)":{"rlTaskId":"37027156","taskStart":"2026-05-06","items":[]}}},"generatedAt":"2026-05-26"};
+
+async function runQuery(sql, statusMsg) {
+  // No-op — data is baked in via LIVE_RL_DATA
+  if (statusMsg) setLoadingMsg(statusMsg);
+}
+
+
+/* Parse a YYYY-MM-DD date string as LOCAL midnight (not UTC).
+   new Date('2026-05-01') = Apr 30 in US timezones — this avoids that. */
+function parseLocalDate(str) {
+  if (!str) return new Date();
+  const [y, m, d] = String(str).split('-').map(Number);
+  return new Date(y, m - 1, d);
+}
+
+function setLoadingMsg(msg) {
+  const tbody = document.getElementById('tableBody');
+  if (tbody && tbody.querySelector('.loading-state')) {
+    const el = tbody.querySelector('.loading-state div:last-child');
+    if (el) el.textContent = msg;
+  }
+}
+
+/* ══ RESULT PARSER ══ */
+function parseDBResult(result) {
+  if (!result) return { rows: [], error: 'No response received' };
+
+  const st = result.status?.state;
+  if (st && st !== 'SUCCEEDED') {
+    return { rows: [], error: `Query state: ${st} — ${result.status?.error?.message || 'no details'}` };
+  }
+
+  // Find columns — try multiple paths
+  let cols = (result.manifest?.schema?.columns || result.schema?.columns || []).map(c => c.name);
+
+  if (!cols.length) {
+    // Debug dump so we can see the actual shape
+    let debug = '';
+    try { debug = JSON.stringify(result).slice(0, 600); } catch(e) { debug = String(result); }
+    return { rows: [], error: `Could not find schema columns. Raw response (first 600 chars): ${debug}` };
+  }
+
+  // Find data rows — try multiple paths
+  const dataArray = result.result?.data_array
+    || result.data_array
+    || result.result?.rows
+    || [];
+
+  const rows = dataArray.map(row => {
+    const obj = {};
+    const values = Array.isArray(row.values) ? row.values : (Array.isArray(row) ? row : []);
+    values.forEach((v, i) => {
+      const col = cols[i];
+      if (!col) return;
+      if (v == null || (typeof v === 'object' && v !== null && 'null_value' in v)) {
+        obj[col] = null;
+      } else if (typeof v === 'object' && v !== null && 'string_value' in v) {
+        obj[col] = v.string_value;
+      } else if (typeof v === 'object' && v !== null && 'long_value' in v) {
+        obj[col] = Number(v.long_value);
+      } else if (typeof v === 'object' && v !== null && 'double_value' in v) {
+        obj[col] = Number(v.double_value);
+      } else {
+        obj[col] = v;  // flat value (string/number directly)
+      }
+    });
+    return obj;
+  });
+
+  return { rows, error: null };
+}
+
+function parseJiraResult(raw) {
+  const result = unwrap(raw);
+  if (!result) return [];
+  if (Array.isArray(result?.issues)) return result.issues;
+  if (result?.result?.issues) return result.result.issues;
+  return [];
+}
+
+/* ══ STATUS COLORS ══ */
+
+/* colorRank: used to find the "worst" status across all milestones */
+const COLOR_RANK = { white: 0, green: 1, orange: 2, red: 3 };
+
+/*
+  rollupClientStatus(p)
+  ─────────────────────
+  Returns the worst PM milestone color across all bank tasks for a client.
+  Uses computePMItemStatus (Phase 1/2/3 formula from milestone date logic doc).
+
+  For each bank entry in p.bankReadinessMap:
+    - Try to find the matching Jira ticket key (for brState keying)
+    - Fall back to RL-{rlTaskId} key if no Jira ticket matched
+    - Iterate all PM_CHECKLIST items, compute color, track worst
+  Overall client color = worst across all bank tasks across all milestones.
+  Falls back to 'white' if no bank tasks exist.
+*/
+function rollupClientStatus(p) {
+  if (p.status === 'Live')    return 'green';
+  if (p.status === 'On Hold') return 'orange';
+
+  const bankEntries = Object.entries(p.bankReadinessMap || {});
+  if (!bankEntries.length) return 'white';
+
+  let hasRed    = false;
+  let hasOrange = false;
+  let allDone   = true;   // goes false the moment any item is not checked
+
+  for (const [bankName, entry] of bankEntries) {
+    const { rlTaskId, taskStart, items } = entry;
+
+    // Determine which key prefix to use for brState lookups:
+    // prefer the matched Jira ticket key; fall back to RL-{rlTaskId}
+    let ticketKey = null;
+    if (p.tickets && p.tickets.length) {
+      const bankNameLower = bankName.toLowerCase();
+      const matched = p.tickets.find(t => {
+        const intName = (extractIntName(t.summary) || t.summary).toLowerCase();
+        return intName.includes(bankNameLower) ||
+               bankNameLower.includes(intName) ||
+               fuzzyBankMatch(bankName, t.summary);
+      });
+      if (matched) ticketKey = matched.key;
+    }
+    const stateKey = ticketKey || `RL-${rlTaskId}`;
+
+    for (const pmItem of PM_CHECKLIST) {
+      const rlMatch = items.find(it => {
+        const n  = (it.name || '').toLowerCase();
+        const p2 = (pmItem.name || '').toLowerCase();
+        return n === p2 || n.includes(p2.slice(0,12)) || p2.includes(n.slice(0,12));
+      });
+      const rlDone  = rlMatch && (rlMatch.rlStatus || '').toLowerCase().includes('complet');
+      const manDone = !rlDone && brState[`${stateKey}__${pmItem.id}`] === true;
+      const isDone  = rlDone || manDone;
+
+      if (!isDone) allDone = false;  // at least one item unchecked
+
+      const rawColor = computePMItemStatus(pmItem, taskStart, p.goLive, isDone);
+      const color    = rawColor === 'blocker' ? 'red' : rawColor;
+      if (color === 'red')    hasRed    = true;
+      if (color === 'orange') hasOrange = true;
+    }
+  }
+
+  // Priority: Red > Orange > White (neutral/not yet due) > Green (all done)
+  // Green ONLY when every single PM item across all bank tasks is checked
+  if (hasRed)    return 'red';
+  if (hasOrange) return 'orange';
+  if (allDone)   return 'green';
+  return 'white';   // some items unchecked but none are overdue yet
+}
+
+/* Helper: rough fuzzy bank name match between an RL bank task name and a Jira summary */
+function fuzzyBankMatch(rlName, jiraSummary) {
+  const r = rlName.toLowerCase().replace(/[^a-z0-9]/g, ' ').trim();
+  const j = jiraSummary.toLowerCase();
+  const words = r.split(/\s+/).filter(w => w.length > 3);
+  return words.length > 0 && words.some(w => j.includes(w));
+}
+
+/* Legacy helper kept for days-badge coloring in the table rows */
+function computeStatusColor(status, daysToGL) {
+  if (status === 'Live')    return 'green';
+  if (status === 'On Hold') return 'orange';
+  if (daysToGL < 0)         return 'red';
+  if (daysToGL <= 7)        return 'red';
+  if (daysToGL <= 14)       return 'orange';
+  return 'white';
+}
+
+function computeMilestoneStatus(m, goLiveDate, projectStatus) {
+  if (projectStatus === 'Live') return 'green';
+  const today = new Date(); today.setHours(0,0,0,0);
+  const due = parseLocalDate(goLiveDate);
+  due.setDate(due.getDate() + m.daysOffset);
+  const daysOver = Math.ceil((today - due) / 86400000);
+  if (daysOver >= m.redAt)    return 'red';
+  if (daysOver >= m.orangeAt) return 'orange';
+  if (daysOver > 0)           return 'orange';
+  return 'white';
+}
+
+/* ══ JIRA MATCHING ══
+   Naming convention is NOT consistent across PMs. Three observed patterns:
+     1. CompanyID field:  "TPAM - 6/1 - Zego"
+     2. Full client name: "Cardinal Management Group - 6/1/26 - WAB"
+     3. Custom word-prefix abbreviation: "calcomm - 6/1 - ..."
+        where "calcomm" = "cal"(ifornia) + "comm"(unities)
+
+   Strategy 4 handles pattern 3 by generating all possible word-prefix
+   combinations from the client name and checking for a match. */
+function jiraClientCode(summary) {
+  const seg = (summary.split(/\s*[-–]\s*/)[0] || '').trim().toLowerCase();
+  // Strip trailing date patterns like "6/1/2026", "6/1/26", "6/1", "6-1-2026"
+  // These appear when a PM omits the dash separator between client code and date
+  return seg.replace(/\s*\d{1,2}[\/\-]\d{1,2}(?:[\/\-]\d{2,4})?\s*$/, '').trim() || seg;
+}
+
+/* Build every possible abbreviation of a company name using variable
+   prefix lengths (1-6 chars) per word. Returns a Set of candidates. */
+function nameAbbreviations(name) {
+  const words = name.toLowerCase().replace(/[^a-z\s]/g,'').split(/\s+/).filter(w => w.length > 0);
+  const set = new Set();
+  // Uniform prefix lengths
+  for (let p = 1; p <= 6; p++) {
+    set.add(words.map(w => w.slice(0, p)).join(''));
+  }
+  // Mixed prefix lengths for 2-word names (most common case)
+  if (words.length === 2) {
+    for (let a = 1; a <= 7; a++) {
+      for (let b = 1; b <= 7; b++) {
+        set.add(words[0].slice(0,a) + words[1].slice(0,b));
+      }
+    }
+  }
+  // Mixed prefix lengths for 3-word names
+  if (words.length === 3) {
+    for (let a = 1; a <= 5; a++) {
+      for (let b = 1; b <= 5; b++) {
+        for (let c = 1; c <= 5; c++) {
+          set.add(words[0].slice(0,a) + words[1].slice(0,b) + words[2].slice(0,c));
+        }
+      }
+    }
+  }
+  return set;
+}
+
+function matchesClient(ticket, client) {
+  const jRaw  = jiraClientCode(ticket.summary);
+  const jNorm = jRaw.replace(/[^a-z0-9]/g, '');
+
+  // Strategy 1 — Exact CompanyID match (e.g. "tpam" === "tpam")
+  if (client.companyId && jNorm === client.companyId) return true;
+
+  // Strategy 2 — Normalized full company name match
+  const cNorm = (client.name || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+  if (cNorm.length > 4 && jNorm === cNorm) return true;
+
+  // Strategy 3 — Prefix match for slight truncation
+  if (cNorm.length > 6 && jNorm.length > 4) {
+    if (cNorm.startsWith(jNorm) || jNorm.startsWith(cNorm)) return true;
+  }
+
+  // Strategy 4 — Word-prefix abbreviation match
+  // e.g. "calcomm" = "cal"(ifornia) + "comm"(unities)
+  if (jNorm.length >= 4) {
+    const abbrevs = nameAbbreviations(client.name || '');
+    if (abbrevs.has(jNorm)) return true;
+  }
+
+  // Strategy 5 — First-word match (for summaries with no dashes at all,
+  // or where the date was embedded in the first segment).
+  // After stripping the date, try just the first word of jRaw.
+  // e.g. "EnProVera OZK Bank" → firstWord = "enprovera" matches companyId "enprovera"
+  const firstWord = jRaw.split(/\s+/)[0].replace(/[^a-z0-9]/g, '');
+  if (firstWord.length >= 4) {
+    if (client.companyId && firstWord === client.companyId) return true;
+    if (cNorm.length > 4 && firstWord === cNorm) return true;
+    const abbrevs5 = nameAbbreviations(client.name || '');
+    if (abbrevs5.has(firstWord)) return true;
+  }
+
+  // Strategy 6 — Reporter display name matches a PM on this Rocketlane project.
+  if (ticket.reporterName && client.pmMembers && client.pmMembers.length > 0) {
+    const rName = ticket.reporterName.toLowerCase().replace(/\s+/g, '');
+    const pmNames = new Set(client.pmMembers.map(m => (m.name || '').toLowerCase().replace(/\s+/g, '')));
+    if (pmNames.has(rName)) {
+      const summaryParts = ticket.summary.split(/\s*[-–]\s*/);
+      const checkPart = summaryParts.length >= 3
+        ? summaryParts.slice(2).join(' ')
+        : ticket.summary;
+      const checkNorm   = checkPart.toLowerCase().replace(/[^a-z0-9\s]/g, '');
+      const clientWords = (client.name || '').toLowerCase().replace(/[^a-z\s]/g,'').split(/\s+/).filter(w => w.length >= 4);
+      if (clientWords.some(w => checkNorm.includes(w))) return true;
+    }
+  }
+
+  return false;
+}
+
+/* Match a Jira ticket to a specific integration by name.
+   Jira summary format: "ClientCode – GoLiveDate – IntegrationName"
+   RL name format:      "Alliance Bank (Banking)", "HomeWise (Closings)", etc.
+*/
+function matchesIntegration(ticket, rlIntName) {
+  // Extract everything after the 2nd dash segment as the integration hint
+  const parts = ticket.summary.split(/\s*[-–]\s*/);
+  const jiraHint = parts.slice(2).join(' ').toLowerCase().replace(/[^a-z0-9\s]/g,'').trim();
+  if (!jiraHint) return false;
+
+  // Strip parenthetical from RL name: "HomeWise (Closings)" → "HomeWise"
+  const rlBase  = rlIntName.replace(/\s*\(.*?\)/g,'').toLowerCase().replace(/[^a-z0-9\s]/g,'').trim();
+  const rlWords = rlBase.split(/\s+/).filter(w => w.length > 2);
+
+  return rlWords.some(w => jiraHint.includes(w)) || jiraHint.includes(rlBase);
+}
+
+function isStale(ticket) {
+  const active = ['In Progress','In Review','To Do','Needs Testing','Waiting for Partner','Waiting for support'];
+  if (!active.includes(ticket.statusName)) return false;
+  return Math.floor((Date.now() - new Date(ticket.updated)) / 86400000) >= 7;
+}
+
+function jiraStatusClass(name) {
+  const n = (name||'').toLowerCase();
+  if (n.includes('progress'))  return 'inprogress';
+  if (n.includes('review'))    return 'inreview';
+  if (n.includes('testing') || n.includes('needs test')) return 'needstesting';
+  if (n.includes('waiting'))   return 'waiting';
+  if (n.includes('validation'))return 'validation';
+  if (n.includes('done'))      return 'done';
+  return 'todo';
+}
+
+/* ══ MILESTONE STATE ══
+   State is keyed by "projectId-step" (e.g., "12345-3").
+   localStorage provides same-browser persistence across page reloads.
+   Jira comments provide cross-user sync — when Jira data is loaded,
+   comments tagged [INT-DASHBOARD] are parsed and overwrite localStorage,
+   so any check made by one team member shows up for everyone on refresh.
+*/
+/* Milestone state is now keyed per-TICKET (e.g. "INT-10465-3") rather than
+   per-project, because each Jira ticket = one integration with its own 10-step track.
+   LS_VERSION bumped to 2 to auto-clear any old projectId-keyed data. */
+const LS_MS_VERSION = 2;
+
+function getMilestoneKey(ticketKey, step) {
+  return `${ticketKey}-${step}`;
+}
+
+/* ── Bank detection ────────────────────────────────────────────────────────
+   Only bank integrations get the 10-step lifecycle card in the left column. */
+const BANK_KEYWORDS = [
+  'western alliance', 'american momentum', 'axos',
+  'banc of california', 'bancal',
+  'bank united', 'bankunited',
+  'city national bank', 'city national', 'cnb',
+  'cogent bank', 'cogent',
+  'enterprise bank', 'enterprise',
+  'first citizens bank', 'first citizens', 'fcb',
+  'first resource bank', 'first resource',
+  'heritage bank', 'heritage',
+  'metro phoenix bank', 'metro phoenix',
+  'national cooperative bank', 'national cooperative',
+  'north state bank', 'north state',
+  'pacific premier bank', 'pacific premier', 'ppb',
+  'pinnacle bank', 'pinnacle',
+  'popular bank', 'popular',
+  'south state bank', 'south state', 'ssb',
+  'sunwest bank', 'sunwest',
+  'truist bank', 'truist',
+  'valley national bank', 'valley national', 'vnb',
+  'ozk bank', 'bank ozk', 'ozk',
+  'webster bank', 'webster',
+  'wintrust bank', 'wintrust',
+  'us bank', 'usbank', 'u.s. bank',
+  'alliance bank', 'alliance association bank',
+];
+
+function isBankTicket(summary) {
+  const lower = summary.toLowerCase();
+  if (lower.includes('(banking)') || lower.includes('banking')) return true;
+  const intName = extractIntName(summary).toLowerCase();
+  return BANK_KEYWORDS.some(kw => intName.includes(kw));
+}
+
+/* Extract the integration / bank name from a Jira ticket summary.
+   Naming convention: "ClientCode – Date – IntegrationName"
+   Falls back gracefully for non-standard formats. */
+function extractIntName(summary) {
+  const parts = summary.split(/\s*[-–]\s*/);
+  if (parts.length >= 3) {
+    return parts.slice(2).join(' – ').replace(/\s*\([^)]+\)\s*$/, '').trim();
+  }
+  if (parts.length === 2) {
+    return parts[1].replace(/\s*\d+[\/\-]\d+(?:[\/\-]\d+)?\s*$/, '').trim() || parts[1].trim();
+  }
+  // No dashes: drop first word (client code) and trailing date
+  const stripped = summary.replace(/\s*\d+[\/\-]\d+(?:[\/\-]\d+)?\s*$/, '').trim();
+  const words = stripped.split(/\s+/);
+  return words.slice(1).join(' ') || summary;
+}
+
+function loadLocalMilestoneState() {
+  try {
+    const ver = parseInt(localStorage.getItem('vantaca_int_ms_ver') || '1');
+    if (ver < LS_MS_VERSION) {
+      // Old format used projectId keys — incompatible, start fresh
+      localStorage.removeItem('vantaca_int_milestones');
+      localStorage.setItem('vantaca_int_ms_ver', String(LS_MS_VERSION));
+      milestoneState = {};
+      return;
+    }
+    const saved = localStorage.getItem('vantaca_int_milestones');
+    if (saved) milestoneState = JSON.parse(saved);
+  } catch(e) { milestoneState = {}; }
+}
+
+function saveMilestoneState() {
+  try {
+    localStorage.setItem('vantaca_int_milestones', JSON.stringify(milestoneState));
+    localStorage.setItem('vantaca_int_ms_ver', String(LS_MS_VERSION));
+  } catch(e) {}
+}
+
+function loadLocalNotesState() {
+  try {
+    const saved = localStorage.getItem('vantaca_int_notes');
+    if (saved) notesState = JSON.parse(saved);
+  } catch(e) { notesState = {}; }
+}
+
+function saveNotesState() {
+  try {
+    localStorage.setItem('vantaca_int_notes', JSON.stringify(notesState));
+  } catch(e) {}
+}
+
+/* LS_BR_VERSION: bumped to 2 because brState keys changed from
+   "projectId__pmItemId" to "ticketKey__pmItemId" (per-bank scoping). */
+const LS_BR_VERSION = 2;
+
+function loadLocalBRState() {
+  try {
+    const ver = parseInt(localStorage.getItem('vantaca_int_br_ver') || '1');
+    if (ver < LS_BR_VERSION) {
+      localStorage.removeItem('vantaca_int_br');
+      localStorage.setItem('vantaca_int_br_ver', String(LS_BR_VERSION));
+      brState = {};
+      return;
+    }
+    const saved = localStorage.getItem('vantaca_int_br');
+    if (saved) brState = JSON.parse(saved);
+  } catch(e) { brState = {}; }
+}
+
+function saveBRState() {
+  try {
+    localStorage.setItem('vantaca_int_br', JSON.stringify(brState));
+    localStorage.setItem('vantaca_int_br_ver', String(LS_BR_VERSION));
+  } catch(e) {}
+}
+
+/* Parse ADF (Atlassian Document Format) to plain text for comment searching */
+function adfToText(node) {
+  if (!node) return '';
+  if (typeof node === 'string') return node;
+  if (node.type === 'text') return node.text || '';
+  if (Array.isArray(node.content)) return node.content.map(adfToText).join('');
+  if (node.content) return adfToText(node.content);
+  return '';
+}
+
+/* Jira Automation posts one of these tags as a comment when the INT team
+   checks the corresponding checklist item. Dashboard reads them on refresh
+   and auto-checks the matching INT milestone. No Jira write from our side. */
+const JIRA_AUTO_TAGS = {
+  '[INT-CREDS-DONE]':   5,  // Enter Parameter Values → Credentials Received
+  '[INT-TESTING-DONE]': 6,  // Test Credentials       → Testing Complete
+  '[INT-READY-GL]':     8,  // Update ACH ID's        → Ready for Go-Live
+  '[INT-POST-GL]':      9,  // Check for ACH Draft    → Post Go-Live Testing Completed
+};
+
+// All system tags — hidden from the activity feed
+const SYSTEM_TAGS = ['[INT-NOTE]', '[INT-CREDS-DONE]', '[INT-TESTING-DONE]', '[INT-READY-GL]', '[INT-POST-GL]'];
+
+/* After fetching all Jira issues (with comment field), scan every comment for:
+   - [INT-AUTO] tags posted by Jira Automation → auto-check INT milestones
+   - [INT-NOTE] tags → sync running notes into localStorage */
+function parseMilestoneComments(issues) {
+  const NOTE_TAG = /\[INT-NOTE\]\s*(\{[^\n]+\})/;
+
+  // Collect notes in a temp map first (keyed by projectId → Set of "at" timestamps
+  // already seen) to avoid duplicating notes already in localStorage.
+  const seenNotes = {}; // { projectId: Set<at> }
+  for (const pid in notesState) {
+    seenNotes[pid] = new Set((notesState[pid] || []).map(n => n.at));
+  }
+
+  for (const iss of issues) {
+    const comments = iss.fields?.comment?.comments || [];
+    for (const c of comments) {
+      const raw         = typeof c.body === 'string' ? c.body : adfToText(c.body);
+      const commentDate = c.updated || c.created || new Date().toISOString();
+
+      // ── Jira Automation INT milestone auto-tags ──────────────────────────
+      for (const [tag, step] of Object.entries(JIRA_AUTO_TAGS)) {
+        if (raw.includes(tag)) {
+          const key      = getMilestoneKey(iss.key, step);
+          const existing = milestoneState[key];
+          // Jira comment is authoritative — set if newer or not yet set
+          if (!existing?.at || new Date(commentDate) >= new Date(existing.at)) {
+            milestoneState[key] = { completed: true, by: 'Jira Auto', at: commentDate };
+          }
+        }
+      }
+
+      // ── Running notes ────────────────────────────────────────────────────
+      const noteMatch = raw.match(NOTE_TAG);
+      if (noteMatch) {
+        try {
+          const data = JSON.parse(noteMatch[1]);
+          const pid  = String(data.rl);
+          if (!seenNotes[pid]) seenNotes[pid] = new Set();
+          if (data.at && !seenNotes[pid].has(data.at)) {
+            if (!notesState[pid]) notesState[pid] = [];
+            notesState[pid].push({ text: data.text || '', by: data.by || 'Team', at: data.at });
+            seenNotes[pid].add(data.at);
+          }
+        } catch(e) {}
+      }
+    }
+  }
+
+  // Sort each project's notes chronologically
+  for (const pid in notesState) {
+    notesState[pid].sort((a, b) => new Date(a.at) - new Date(b.at));
+  }
+
+  saveMilestoneState();
+  saveNotesState();
+}
+
+/* Fetch the current Atlassian user's display name */
+async function loadCurrentUser() {
+  try {
+    const raw    = await callMcp(JIRA_USER_TOOL, {});
+    const result = unwrap(raw);
+    currentUserName = result?.displayName || result?.name ||
+                      result?.emailAddress?.split('@')[0] || 'Team Member';
+  } catch(e) { /* stay as default */ }
+}
+
+/* Write a structured Jira comment so other dashboard users see the check on refresh.
+   Uses "tk" (ticket key) as the identifier — written directly to that INT ticket. */
+async function writeMilestoneComment(ticketKey, step, milestoneName, state) {
+  const verb = state.completed ? '✅ Marked complete' : '⬜ Marked incomplete';
+  const dt   = new Date(state.at).toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' });
+  const tag  = JSON.stringify({ tk: ticketKey, s: step, done: state.completed, by: state.by, at: state.at, m: milestoneName });
+  const body = `${verb}: Step ${step} – ${milestoneName}\nBy ${state.by} on ${dt}\n\n[INT-DASHBOARD] ${tag}`;
+  await callMcp(JIRA_COMMENT_TOOL, {
+    cloudId:       JIRA_CLOUD,
+    issueIdOrKey:  ticketKey,
+    body:          body,
+    contentFormat: 'markdown',
+  });
+}
+
+/* Toggle a milestone for a specific integration ticket.
+   ticketKey is both the state key AND the Jira ticket to write the comment to. */
+async function toggleMilestone(ticketKey, step, milestoneName) {
+  const key        = getMilestoneKey(ticketKey, step);
+  const wasChecked = milestoneState[key]?.completed === true;
+  const newState   = { completed: !wasChecked, by: currentUserName, at: new Date().toISOString() };
+  milestoneState[key] = newState;
+  saveMilestoneState();
+
+  // Safe ID — ticket keys contain hyphens which are valid in HTML IDs
+  const safeId = ticketKey.replace(/[^a-zA-Z0-9-]/g, '');
+  const el = document.getElementById(`ms-${safeId}-${step}`);
+  if (el) applyMilestoneDOM(el, ticketKey, step, milestoneName, newState);
+  // State is persisted to localStorage only — no Jira comment written for checkbox toggles
+}
+
+/* Apply visual state to a milestone DOM element without re-rendering the row */
+function applyMilestoneDOM(el, ticketKey, step, milestoneName, state) {
+  const isChecked = state?.completed === true;
+  const m = MILESTONES.find(x => x.step === step);
+  // Find the project that owns this ticket so we can compute deadline colors
+  const p = allProjects.find(x => x.tickets.some(t => t.key === ticketKey));
+
+  // Outer item color
+  el.classList.remove('green','orange','red','white','done-manual');
+  if (isChecked) {
+    el.classList.add('green','done-manual');
+  } else if (p && m) {
+    el.classList.add(computeMilestoneStatus(m, p.goLiveDate, p.status));
+  }
+
+  // Checkbox
+  const cb = el.querySelector('.m-checkbox');
+  if (cb) {
+    cb.classList.toggle('checked', isChecked);
+    cb.innerHTML = isChecked ? '✓' : '';
+    cb.title = isChecked ? 'Click to uncheck' : 'Click to mark complete';
+  }
+
+  // Badge
+  const badge = el.querySelector('.m-badge');
+  if (badge) {
+    if (isChecked) {
+      badge.className = 'm-badge green';
+      badge.textContent = '✓ Complete';
+    } else if (p && m) {
+      const col = computeMilestoneStatus(m, p.goLiveDate, p.status);
+      const due = parseLocalDate(p.goLive); due.setDate(due.getDate() + m.daysOffset);
+      const ds  = due.toLocaleDateString('en-US',{month:'short',day:'numeric'});
+      badge.className = `m-badge ${col}`;
+      badge.textContent = { green:'✓ On Track', orange:'⚠ Due Soon', red:'✗ Overdue', white:`Due ${ds}` }[col];
+    }
+  }
+
+  // "Completed by" line
+  const content = el.querySelector('.m-content');
+  if (content) {
+    let byEl = content.querySelector('.m-completedby');
+    if (isChecked && state) {
+      const dt = new Date(state.at).toLocaleDateString('en-US',{month:'short',day:'numeric'});
+      const html = `<div class="m-completedby">✓ ${escHtml(state.by || 'Team')} · ${dt}</div>`;
+      if (byEl) byEl.outerHTML = html;
+      else content.insertAdjacentHTML('beforeend', html);
+    } else if (byEl) {
+      byEl.remove();
+    }
+  }
+}
+
+/* ══ PM BANK READINESS TOGGLE ══
+   Keyed per Jira ticket (ticketKey) so that multiple banks on the same
+   project each get independent checklist state. */
+function toggleBRItem(ticketKey, subtaskId) {
+  const key        = `${ticketKey}__${subtaskId}`;
+  const wasChecked = brState[key] === true;
+  brState[key]     = !wasChecked;
+  saveBRState();
+
+  // Sanitize ticket key for safe DOM IDs (hyphens are valid in IDs)
+  const safeKey = ticketKey.replace(/[^a-zA-Z0-9-]/g, '');
+
+  // Update DOM without full re-render
+  const rowEl = document.getElementById(`br-row-${safeKey}-${subtaskId}`);
+  const cbEl  = document.getElementById(`br-cb-${safeKey}-${subtaskId}`);
+  const bgEl  = document.getElementById(`br-badge-${safeKey}-${subtaskId}`);
+  if (rowEl) {
+    rowEl.classList.toggle('done-manual', !wasChecked);
+  }
+  if (cbEl) {
+    cbEl.classList.toggle('checked', !wasChecked);
+    cbEl.textContent = !wasChecked ? '✓' : '';
+  }
+  if (bgEl) {
+    if (!wasChecked) {
+      bgEl.className = 'm-badge green';
+      bgEl.textContent = 'Manual ✓';
+    } else {
+      bgEl.className = 'm-badge white';
+      bgEl.textContent = 'Pending';
+    }
+  }
+  // Update PM checklist count label in this bank card's section header
+  const countEl = document.getElementById(`br-count-${safeKey}`);
+  if (countEl) {
+    const done = PM_CHECKLIST.filter(item => brState[`${ticketKey}__${item.id}`] === true).length;
+    countEl.textContent = `${done}/${PM_CHECKLIST.length}`;
+  }
+
+  // Re-compute this project's status dot and update it in the table without full re-render
+  // Find project by matching ticket key (for Jira-keyed banks) or RL key prefix (for RL-only)
+  const proj = allProjects.find(p =>
+    p.tickets.some(t => t.key === ticketKey) ||
+    Object.values(p.bankReadinessMap || {}).some(e => `RL-${e.rlTaskId}` === ticketKey)
+  );
+  if (proj) {
+    proj.statusColor = rollupClientStatus(proj);
+    const dotEl = document.querySelector(`#row-${proj.id} .status-dot`);
+    if (dotEl) {
+      dotEl.className = `status-dot ${proj.statusColor}`;
+    }
+    updateStats();
+  }
+}
+
+/* ══ RUNNING NOTES ══ */
+
+/* Write a Jira comment encoding the note so other dashboard users see it on refresh */
+async function writeNoteComment(ticketKey, projectId, note) {
+  const dt  = new Date(note.at).toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' });
+  const tag = JSON.stringify({ rl: projectId, text: note.text, by: note.by, at: note.at });
+  const body = `📝 **Note** by ${note.by} on ${dt}:\n\n${note.text}\n\n[INT-NOTE] ${tag}`;
+  await callMcp(JIRA_COMMENT_TOOL, {
+    cloudId:       JIRA_CLOUD,
+    issueIdOrKey:  ticketKey,
+    body:          body,
+    contentFormat: 'markdown',
+  });
+}
+
+/* Re-render just the notes list inside a DOM element (avoids full row re-render) */
+function renderNotesInDOM(projectId) {
+  const listEl = document.getElementById(`notes-list-${projectId}`);
+  const countEl = document.getElementById(`notes-count-${projectId}`);
+  const notes   = notesState[projectId] || [];
+  if (countEl) countEl.textContent = `${notes.length} note${notes.length !== 1 ? 's' : ''}`;
+  if (!listEl) return;
+  if (!notes.length) {
+    listEl.innerHTML = `<div class="notes-empty">No notes yet — add the first one below.</div>`;
+    return;
+  }
+  listEl.innerHTML = notes.map(n => {
+    const dt = new Date(n.at).toLocaleString('en-US', { month:'short', day:'numeric', year:'numeric', hour:'2-digit', minute:'2-digit' });
+    return `<div class="note-item">
+      <div class="note-meta">📝 ${escHtml(n.by)} &nbsp;·&nbsp; ${dt}</div>
+      <div class="note-text">${escHtml(n.text)}</div>
+    </div>`;
+  }).join('');
+  listEl.scrollTop = listEl.scrollHeight;
+}
+
+/* Add a new note: save locally, update DOM, then write to Jira in background */
+async function addNote(projectId, primaryTicketKey) {
+  const ta  = document.getElementById(`note-ta-${projectId}`);
+  const btn = document.getElementById(`note-btn-${projectId}`);
+  const st  = document.getElementById(`note-st-${projectId}`);
+
+  const text = (ta?.value || '').trim();
+  if (!text) { ta?.focus(); return; }
+
+  btn.disabled = true; btn.textContent = 'Saving…';
+
+  const note = { text, by: currentUserName, at: new Date().toISOString() };
+  if (!notesState[projectId]) notesState[projectId] = [];
+  notesState[projectId].push(note);
+  saveNotesState();
+
+  ta.value = '';
+  ta.style.height = '';
+  renderNotesInDOM(projectId);
+
+  if (primaryTicketKey) {
+    try {
+      await writeNoteComment(primaryTicketKey, projectId, note);
+      if (st) { st.textContent = '✓ Saved to Jira'; setTimeout(() => { if (st) st.textContent = ''; }, 2500); }
+    } catch(e) {
+      if (st) { st.textContent = '⚠ Saved locally (Jira write failed)'; st.style.color = '#92400e'; setTimeout(() => { if (st) { st.textContent = ''; st.style.color = ''; } }, 3500); }
+    }
+  } else {
+    if (st) { st.textContent = '✓ Saved locally'; setTimeout(() => { if (st) st.textContent = ''; }, 2500); }
+  }
+
+  btn.disabled = false; btn.textContent = 'Add Note';
+  ta?.focus();
+}
+
+/* ══ DATA LOADING ══ */
+async function loadData() {
+  const btn = document.getElementById('refreshBtn');
+  btn.disabled = true; btn.textContent = '↻ Loading…';
+  expandedRows.clear();
+  updateStatusBar('loading');
+  loadLocalMilestoneState();
+  loadLocalNotesState();
+  loadLocalBRState();
+  currentUserName = 'Ashley Byrd';
+  document.getElementById('tableBody').innerHTML = `
+    <tr><td colspan="10"><div class="loading-state">
+      <div class="loading-spinner"></div>
+      <div id="loadingMsg">Loading Rocketlane data…</div>
+    </div></td></tr>`;
+
+  // ── Build project model from baked-in Rocketlane data ────────
+  const projRows  = LIVE_RL_DATA.projects;
+  const teamRows  = LIVE_RL_DATA.teamRows;
+  const brMap     = LIVE_RL_DATA.brMap;
+
+  // Build team map
+  const teamMap = {};
+  teamRows.forEach(m => {
+    const pid   = String(m.project_id);
+    const email = (m.email_id || '').toLowerCase().trim();
+    const name  = [m.first_name, m.last_name].filter(Boolean).join(' ')
+                  || email.split('@')[0].replace(/\./g,' ').replace(/\b\w/g,c=>c.toUpperCase());
+    if (!teamMap[pid]) teamMap[pid] = [];
+    teamMap[pid].push({ name, email, isPm: PM_EMAILS.has(email), isInt: INT_EMAILS.has(email) });
+  });
+
+  const today = new Date(); today.setHours(0,0,0,0);
+  allProjects = projRows.map(p => {
+    const pid    = String(p.id);
+    const team   = teamMap[pid] || [];
+    const pms    = team.filter(m => m.isPm);
+    const ints   = team.filter(m => m.isInt);
+    const goLive   = parseLocalDate(p.go_live_date);
+    const daysToGL = Math.ceil((goLive - today) / 86400000);
+    return {
+      id: pid,
+      name: p.customer_company_name || p.name,
+      projectName: p.name,
+      companyId: (p.company_id || '').toLowerCase().replace(/[^a-z0-9]/g, '').trim(),
+      goLive: p.go_live_date,
+      goLiveDate: goLive,
+      daysToGL,
+      status: p.status_label || '—',
+      progress: p.pre_gl_total > 0
+        ? Math.round((p.pre_gl_done / p.pre_gl_total) * 100)
+        : (parseFloat(p.progress_percentage) || 0),
+      preGlTotal: parseInt(p.pre_gl_total) || 0,
+      preGlDone:  parseInt(p.pre_gl_done)  || 0,
+      pm: pms[0]?.name || '—',
+      pmMembers: pms,
+      intMembers: ints,
+      tickets: [],
+      bankReadinessMap: brMap[pid] || {},
+      statusColor: 'white',
+    };
+  });
+
+  allProjects.forEach(p => { p.statusColor = rollupClientStatus(p); });
+
+  initMonthTabs();
+  updateStats();
+  renderTable();
+  const d = new Date(LIVE_RL_DATA.generatedAt + 'T00:00:00');
+  const dateStr = d.toLocaleDateString('en-US', {month:'short', day:'numeric'});
+  document.getElementById('lastUpdated').textContent = `RL as of ${dateStr}`;
+  updateStatusBar('partial', null, null);
+  btn.disabled = false; btn.textContent = '↻ Refresh';
+
+  loadJira();
+}
+
+async function loadJira() {
+  jiraLoaded = false; jiraError = null;
+  try {
+    let allIssues = [];
+    let nextPageToken = undefined;
+    const MAX_PAGES = 25;
+    for (let page = 0; page < MAX_PAGES; page++) {
+      const params = {
+        cloudId:    JIRA_CLOUD,
+        jql:        'project = "INT" AND (status not in (Done, Cancelled, Canceled) OR (summary ~ "API Agreement Form" OR summary ~ "Signed API Form" OR summary ~ "api form") AND created >= "2025-01-01") ORDER BY created DESC',
+        fields:     ['summary','status','assignee','reporter','updated','created','comment'],
+        maxResults: 100,
+      };
+      if (nextPageToken) params.nextPageToken = nextPageToken;
+      const raw    = await callMcp(JIRA_TOOL, params, 30000);
+      const result = unwrap(raw);
+      const pageIssues = Array.isArray(result?.issues)        ? result.issues
+                       : Array.isArray(result?.result?.issues) ? result.result.issues
+                       : [];
+      allIssues = allIssues.concat(pageIssues);
+      if (result?.isLast === true || !result?.nextPageToken) break;
+      nextPageToken = result.nextPageToken;
+    }
+    parseMilestoneComments(allIssues);
+    jiraTickets = allIssues.map(iss => {
+      const f  = iss.fields || {};
+      const st = (f.status || {}).name || '—';
+      const rawComments = (f.comment?.comments || []);
+      const visibleComments = rawComments
+        .map(c => ({
+          author: c.author?.displayName || c.updateAuthor?.displayName || 'Unknown',
+          body:   typeof c.body === 'string' ? c.body : adfToText(c.body),
+          date:   (c.updated || c.created || '').slice(0, 10),
+        }))
+        .filter(c => !SYSTEM_TAGS.some(tag => c.body.includes(tag)))
+        .slice(-5);
+      return {
+        key:           iss.key,
+        summary:       f.summary || '',
+        statusName:    st,
+        statusCls:     jiraStatusClass(st),
+        assignee:      (f.assignee  || {}).displayName  || 'Unassigned',
+        reporterEmail: ((f.reporter || {}).emailAddress || '').toLowerCase().trim(),
+        reporterName:  (f.reporter  || {}).displayName  || '',
+        updated:       (f.updated || '').slice(0,10),
+        created:       (f.created || '').slice(0,10),
+        url:           JIRA_BASE + iss.key,
+        comments:      visibleComments,
+      };
+    });
+    allProjects.forEach(p => {
+      p.tickets = jiraTickets.filter(t => matchesClient(t, p));
+      p.statusColor = rollupClientStatus(p);
+    });
+    jiraLoaded = true;
+    updateStats();
+    renderTable();
+    document.getElementById('lastUpdated').textContent =
+      `Updated ${new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}`;
+    updateStatusBar('ok', null, null);
+
+  } catch(e) {
+    jiraError  = e?.message || String(e);
+    jiraLoaded = true;
+    jiraTickets = [];
+    updateStatusBar('warn', null, jiraError);
+  }
+}
+
+/* ══ STATUS BAR ══ */
+function updateStatusBar(state, rlErr, jiraErr) {
+  const bar = document.getElementById('dataStatusBar');
+  bar.style.display = 'flex';
+  if (state === 'loading') {
+    bar.className = 'data-status-bar warn';
+    bar.innerHTML = '<span class="source-badge loading">Rocketlane</span> Fetching… <span class="source-badge loading">Jira</span> Pending…';
+  } else if (state === 'partial') {
+    bar.className = 'data-status-bar warn';
+    bar.innerHTML = `<span class="source-badge ok">Rocketlane ✓</span> ${allProjects.length} clients loaded${rlErr?` — ⚠ ${escHtml(rlErr)}`:''}  &nbsp;·&nbsp; <span class="source-badge loading">Jira</span> Loading tickets…`;
+  } else if (state === 'ok') {
+    bar.className = 'data-status-bar ok';
+    bar.innerHTML = `<span class="source-badge ok">Rocketlane ✓</span> Live data &nbsp;·&nbsp; <span class="source-badge ok">Jira ✓</span> ${jiraTickets.length} active INT tickets`;
+  } else if (state === 'warn') {
+    bar.className = 'data-status-bar warn';
+    bar.innerHTML = `<span class="source-badge ok">Rocketlane ✓</span> Live data &nbsp;·&nbsp; <span class="source-badge err">Jira ✗</span> ${escHtml(jiraErr || 'Could not load tickets')}`;
+  } else {
+    bar.className = 'data-status-bar err';
+    bar.innerHTML = `<span class="source-badge err">Rocketlane ✗</span> ${escHtml(rlErr || 'Failed to load')}`;
+  }
+}
+
+/* ══ CONTROLS ══ */
+function setMonth(m) {
+  activeMonth = m;
+  document.querySelectorAll('.month-tab').forEach(t => t.classList.remove('active'));
+  const idMap = { all:'tabBoth', m1:'tabM1', m2:'tabM2', m3:'tabM3' };
+  if (idMap[m]) document.getElementById(idMap[m]).classList.add('active');
+  expandedRows.clear(); renderTable();
+}
+
+function initMonthTabs() {
+  const sub = document.getElementById('dashSubtitle');
+  if (sub) sub.textContent = `${MONTH1_SHORT} – ${MONTH3_SHORT} ${MONTH1_YEAR === MONTH3_YEAR ? MONTH1_YEAR : MONTH1_YEAR + '/' + MONTH3_YEAR} · Vantaca Implementations`;
+  const t1 = document.getElementById('tabM1');
+  const t2 = document.getElementById('tabM2');
+  const t3 = document.getElementById('tabM3');
+  if (t1) { t1.textContent = MONTH1_LABEL; t1.style.display = ''; }
+  if (t2) { t2.textContent = MONTH2_LABEL; t2.style.display = ''; }
+  if (t3) { t3.textContent = MONTH3_LABEL; t3.style.display = ''; }
+}
+
+function sortBy(field) {
+  if (sortField === field) sortAsc = !sortAsc; else { sortField = field; sortAsc = true; }
+  document.querySelectorAll('thead th').forEach(th => {
+    th.classList.remove('sorted');
+    if (th.id) th.textContent = th.textContent.replace(/[↑↓↕]/g,'').trim() + ' ↕';
+  });
+  const thEl = document.getElementById('th-' + field);
+  if (thEl) { thEl.classList.add('sorted'); thEl.textContent = thEl.textContent.replace(/[↑↓↕]/g,'').trim() + ' ' + (sortAsc?'↑':'↓'); }
+  renderTable();
+}
+
+function getFiltered() {
+  const search  = (document.getElementById('searchInput')?.value||'').toLowerCase();
+  const statusF = document.getElementById('statusFilter')?.value||'';
+  const riskF   = document.getElementById('riskFilter')?.value||'';
+  return allProjects.filter(p => {
+    if (activeMonth === 'm1' && parseLocalDate(p.goLive).getMonth()+1 !== MONTH1_NUM) return false;
+    if (activeMonth === 'm2' && parseLocalDate(p.goLive).getMonth()+1 !== MONTH2_NUM) return false;
+    if (activeMonth === 'm3' && parseLocalDate(p.goLive).getMonth()+1 !== MONTH3_NUM) return false;
+    if (search && !p.name.toLowerCase().includes(search) && !p.pm.toLowerCase().includes(search)) return false;
+    if (statusF && p.status !== statusF) return false;
+    if (riskF   && p.statusColor !== riskF) return false;
+    return true;
+  }).sort((a,b) => {
+    let va, vb;
+    switch(sortField) {
+      case 'client':   va=a.name;       vb=b.name;       break;
+      case 'goLive':   va=a.goLive;     vb=b.goLive;     break;
+      case 'days':     va=a.daysToGL;   vb=b.daysToGL;   break;
+      case 'pm':       va=a.pm;         vb=b.pm;         break;
+      case 'int':      va=a.intMembers[0]?.name||''; vb=b.intMembers[0]?.name||''; break;
+      case 'tickets':  va=a.tickets.length; vb=b.tickets.length; break;
+      case 'rlStatus': va=a.status;     vb=b.status;     break;
+      case 'progress': va=a.progress;   vb=b.progress;   break;
+      default:         va=a.goLive;     vb=b.goLive;
+    }
+    if(va<vb) return sortAsc?-1:1; if(va>vb) return sortAsc?1:-1; return 0;
+  });
+}
+
+/* ══ RENDER ══ */
+function renderTable() {
+  const projects = getFiltered();
+  const tbody = document.getElementById('tableBody');
+  if (!projects.length) {
+    tbody.innerHTML = `<tr><td colspan="10"><div class="empty-state">No clients match the current filters.</div></td></tr>`;
+    return;
+  }
+  tbody.innerHTML = projects.flatMap(p => {
+    const exp      = expandedRows.has(p.id);
+    const glStr    = parseLocalDate(p.goLive).toLocaleDateString('en-US',{month:'short',day:'numeric'});
+    const pct      = Math.round(p.progress);
+    // pacing.expectedPct placeholder — full pacing curve requires project_start (V2 backlog)
+    const pacing   = { expectedPct: null };
+    // Gradient: blue (0%) → green (90%+)
+    // Interpolate RGB between #4f46e5 (blue) and #22c55e (green)
+    const t        = Math.min(pct / 90, 1);
+    const r        = Math.round(79  + (34  - 79)  * t);
+    const g        = Math.round(70  + (197 - 70)  * t);
+    const b        = Math.round(229 + (94  - 229) * t);
+    const barColor = `rgb(${r},${g},${b})`;
+    const intFirst = p.intMembers[0]?.name || (jiraLoaded ? '—' : '…');
+    const intExtra = p.intMembers.length > 1 ? `<span style="color:#9ca3af;font-size:10px"> +${p.intMembers.length-1}</span>` : '';
+
+    let daysBadge;
+    if (p.status==='Live')   daysBadge = `<span class="days-badge live">✓ Live</span>`;
+    else if (p.daysToGL<0)   daysBadge = `<span class="days-badge red">${Math.abs(p.daysToGL)}d overdue</span>`;
+    else if (p.daysToGL===0) daysBadge = `<span class="days-badge red">Today!</span>`;
+    else { const c = p.statusColor==='red'?'red':p.statusColor==='orange'?'orange':'white'; daysBadge=`<span class="days-badge ${c}">${p.daysToGL}d</span>`; }
+
+    const staleCount = p.tickets.filter(t=>isStale(t)).length;
+    let ticketBadge;
+    if (!jiraLoaded)            ticketBadge = `<span style="color:#9ca3af;font-size:11px">…</span>`;
+    else if (!p.tickets.length) ticketBadge = `<span style="color:#9ca3af;font-size:11px">—</span>`;
+    else if (staleCount>0)      ticketBadge = `<span style="font-size:11px;font-weight:600;color:#92400e">⚠ ${p.tickets.length} (${staleCount} stale)</span>`;
+    else                        ticketBadge = `<span style="font-size:11px;font-weight:600;color:#4f46e5">🎫 ${p.tickets.length}</span>`;
+
+    const rlPill = `<span style="font-size:11px;padding:2px 8px;border-radius:10px;background:#f3f4f6;color:#374151">${escHtml(p.status)}</span>`;
+
+    const mainRow = `
+      <tr class="data-row ${exp?'expanded-row-parent':''}" id="row-${p.id}" onclick="toggleExpand('${p.id}')">
+        <td><button class="expand-btn" onclick="event.stopPropagation();toggleExpand('${p.id}')">${exp?'▼':'▶'}</button></td>
+        <td><span class="status-dot ${p.statusColor}"></span></td>
+        <td style="font-weight:600;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escHtml(p.name)}">${escHtml(p.name)}</td>
+        <td style="white-space:nowrap;color:#374151">${glStr}</td>
+        <td>${daysBadge}</td>
+        <td style="color:#374151;white-space:nowrap">${escHtml(p.pm)}</td>
+        <td style="color:#374151;white-space:nowrap">${escHtml(intFirst)}${intExtra}</td>
+        <td>${ticketBadge}</td>
+        <td><div style="display:flex;align-items:center;gap:5px" title="${pct}% complete · Expected ${pacing.expectedPct ?? '?'}% (${p.preGlDone}/${p.preGlTotal} pre-go-live tasks)">
+          <div class="progress-bar">
+            <div class="progress-fill" style="width:${pct}%;background:${barColor}"></div>
+          </div>
+          <span style="font-size:11px;color:#6b7280;min-width:30px">${pct}%</span>
+        </div></td>
+      </tr>`;
+
+    const detailRow = `
+      <tr class="detail-row ${exp?'open':''}" id="detail-${p.id}">
+        <td colspan="10" class="detail-cell">${exp?renderDetail(p):''}</td>
+      </tr>`;
+    return [mainRow, detailRow];
+  }).join('');
+}
+
+function renderDetail(p) {
+  const glLabel = p.status==='Live' ? '✅ Client is live!' :
+    p.daysToGL<0  ? `⚠️ ${Math.abs(p.daysToGL)} days past scheduled go-live` :
+    p.daysToGL===0? '🚀 Go-live is TODAY' : `${p.daysToGL} days until go-live`;
+
+  const pmChips  = p.pmMembers.map(m=>`<span class="team-chip pm">PM: ${escHtml(m.name)}</span>`).join('');
+  const intChips = p.intMembers.map(m=>`<span class="team-chip int">INT: ${escHtml(m.name)}</span>`).join('');
+
+  // ── Left column: per-bank integration cards ──────────────────────────────────
+  let intCardsHtml;
+  if (!jiraLoaded) {
+    intCardsHtml = `<div class="int-no-tickets">⏳ Loading Jira tickets…</div>`;
+  } else if (jiraError) {
+    intCardsHtml = `<div class="int-no-tickets">⚠️ Jira unavailable — <a href="https://vantaca.atlassian.net/jira/software/c/projects/INT/boards/69" target="_blank" style="color:#4f46e5">Open INT board</a></div>`;
+  } else if (!p.tickets.length) {
+    intCardsHtml = `<div class="int-no-tickets">🎫 No INT tickets matched to this client.<br><span style="font-size:11px"><a href="https://vantaca.atlassian.net/jira/software/c/projects/INT/boards/69" target="_blank" style="color:#4f46e5">Search the INT board →</a></span></div>`;
+  } else {
+    const bankTickets  = p.tickets.filter(t => isBankTicket(t.summary));
+    const nonBankCount = p.tickets.length - bankTickets.length;
+
+    if (!bankTickets.length) {
+      // ── Fallback: render RL bank task cards when no Jira tickets are matched ──
+      // This covers test projects and clients where Jira tickets haven't been created yet.
+      const rlBankEntries = Object.entries(p.bankReadinessMap || {}).filter(([name]) => {
+        const n = name.toLowerCase();
+        return n.includes('bank') || BANK_KEYWORDS.some(kw => n.includes(kw));
+      });
+
+      if (rlBankEntries.length) {
+        intCardsHtml = rlBankEntries.map(([bankTaskName, entry]) => {
+          // Use "RL-{taskId}" as a stable per-bank key (no Jira ticket)
+          const rlKey   = `RL-${entry.rlTaskId}`;
+          const safeKey = rlKey.replace(/[^a-zA-Z0-9-]/g, '');
+          const rlItems = entry.items || [];
+          const rlByNorm2 = {};
+          rlItems.forEach(item => { rlByNorm2[normName(item.name)] = item; });
+
+          function findRLMatch2(pmName) {
+            const pn = normName(pmName);
+            for (const [rn, item] of Object.entries(rlByNorm2)) {
+              if (pn.length >= 6 && rn.startsWith(pn.slice(0,6))) return item;
+              if (rn.length >= 6 && pn.startsWith(rn.slice(0,6))) return item;
+            }
+            // Word-level fallback (handles "Bank Notified" ↔ "All Banks Notified")
+            const pWords = pn.match(/[a-z]{4,}/g) || [];
+            for (const [rn, item] of Object.entries(rlByNorm2)) {
+              const rWords = new Set(rn.match(/[a-z]{4,}/g) || []);
+              if (pWords.length > 0 && pWords.filter(w => rWords.has(w)).length >= Math.min(2, pWords.length)) return item;
+            }
+            return null;
+          }
+
+          const rlTaskStart2 = entry.taskStart || null;
+
+          function getPMOnTrackDate2(pmItem) {
+            const gl = parseLocalDate(p.goLive);
+            const ts = rlTaskStart2 ? parseLocalDate(rlTaskStart2) : new Date(gl.getTime() - 60 * 86400000);
+            if (pmItem.phase === 3) return new Date(gl.getTime() + pmItem.onTrackCd * 86400000);
+            return addBusinessDays(ts, pmItem.onTrackBd);
+          }
+
+          const pmDone2 = PM_CHECKLIST.filter(item => {
+            const rlMatch = findRLMatch2(item.name);
+            const rlDone  = rlMatch && (rlMatch.rlStatus || '').toLowerCase().includes('complet');
+            return rlDone || brState[`${rlKey}__${item.id}`] === true;
+          }).length;
+
+          const pmRows2 = PM_CHECKLIST.map(pmItem => {
+            const rlMatch     = findRLMatch2(pmItem.name);
+            const rlDone      = rlMatch && (rlMatch.rlStatus || '').toLowerCase().includes('complet');
+            const manKey      = `${rlKey}__${pmItem.id}`;
+            const manDone     = !rlDone && brState[manKey] === true;
+            const isDone      = rlDone || manDone;
+            const autoColor   = computePMItemStatus(pmItem, rlTaskStart2, p.goLive, isDone);
+            const dispColor   = autoColor === 'blocker' ? 'red' : autoColor;
+            const isBlocker   = autoColor === 'blocker' && !isDone;
+            const onTrackDate = getPMOnTrackDate2(pmItem);
+            const onTrackStr  = onTrackDate.toLocaleDateString('en-US', { month:'short', day:'numeric' });
+
+            const onclickStr = rlDone
+              ? `style="cursor:default" title="Completed in Rocketlane — read-only"`
+              : `onclick="toggleBRItem('${rlKey}','${pmItem.id}')" title="Click to toggle"`;
+            const metaLabel = isDone
+              ? (rlDone ? '<span style="color:#16a34a">✓ Rocketlane</span>' : '<span style="color:#4f46e5">✓ Manual</span>')
+              : `PM · on track by ${onTrackStr}`;
+            const badgeText = isDone
+              ? (rlDone ? 'RL ✓' : 'Manual ✓')
+              : isBlocker ? '🚨 Blocker'
+              : { red:'✗ Overdue', orange:'⚠ At Risk', green:'✓ On Track', white:`Due ${onTrackStr}` }[dispColor] || `Due ${onTrackStr}`;
+
+            return `<div class="milestone-item ${isDone?'done-manual':isBlocker?'blocker':dispColor}" id="br-row-${safeKey}-${pmItem.id}">
+              <div class="m-checkbox${isDone?' checked':''}" id="br-cb-${safeKey}-${pmItem.id}" ${onclickStr}>${isDone?'✓':''}</div>
+              <div class="m-content">
+                <div class="m-name">${escHtml(pmItem.name)}</div>
+                <div class="m-meta">${metaLabel}</div>
+              </div>
+              <span class="m-badge ${isDone?'green':dispColor}" id="br-badge-${safeKey}-${pmItem.id}">${badgeText}</span>
+            </div>`;
+          }).join('');
+
+          // ── API Form Complete for fallback cards ──
+          const apiFormTicketFb = findJiraApiForm(p);
+          const apiFormJiraFb   = !!apiFormTicketFb;
+          const apiFormManualFb = !apiFormJiraFb && brState[`${rlKey}__api-form`] === true;
+          const apiFormDoneFb   = apiFormJiraFb || apiFormManualFb;
+          const apiFormHtmlFb   = `<div class="checklist-section-header" style="background:#ecfdf5;color:#065f46;border-top:2px solid #d1fae5;margin-top:2px">API Form</div>
+            <div class="int-card-milestones">
+              <div class="milestone-item ${apiFormDoneFb?'green done-manual':'white'}" id="br-row-${safeKey}-api-form">
+                <div class="m-checkbox${apiFormDoneFb?' checked':''}" id="br-cb-${safeKey}-api-form"
+                     ${apiFormJiraFb ? 'style="cursor:default" title="Auto-detected: API form found in Jira"'
+                                     : `onclick="toggleBRItem('${escHtml(rlKey)}','api-form')" title="${apiFormManualFb?'Click to uncheck':'Click to mark complete'}"`}>
+                  ${apiFormDoneFb?'✓':''}
+                </div>
+                <div class="m-content">
+                  <div class="m-name">API Form Complete</div>
+                  <div class="m-meta">${apiFormJiraFb
+                    ? `<a href="${escHtml(apiFormTicketFb.url)}" target="_blank" style="color:#4f46e5">${escHtml(apiFormTicketFb.key)} ↗</a>`
+                    : `<span style="color:#6b7280">Required before go-live</span>`}</div>
+                </div>
+                <span class="m-badge ${apiFormDoneFb?'green':'white'}" id="br-badge-${safeKey}-api-form">${apiFormJiraFb ? '✓ Jira' : (apiFormManualFb ? 'Manual ✓' : 'Pending')}</span>
+              </div>
+            </div>`;
+
+          // ── INT Checklist for fallback cards (no Jira ticket yet) ──
+          const intStepsFb = MILESTONES.filter(m => m.step >= 5 && m.step <= 9);
+          const intRowsFb  = intStepsFb.map(m => {
+            const key       = getMilestoneKey(rlKey, m.step);
+            const state     = milestoneState[key];
+            const isChecked = state?.completed === true;
+            const autoColor = computeMilestoneStatus(m, p.goLiveDate, p.status);
+            const due = parseLocalDate(p.goLive); due.setDate(due.getDate() + m.daysOffset);
+            const ds  = due.toLocaleDateString('en-US',{month:'short',day:'numeric'});
+            const badgeLabel = isChecked ? '✓ Complete'
+              : { green:'✓ On Track', orange:'⚠ Due Soon', red:'✗ Overdue', white:`Due ${ds}` }[autoColor];
+            const completedLine = isChecked && state
+              ? `<div class="m-completedby">✓ ${escHtml(state.by||'Team')} · ${new Date(state.at).toLocaleDateString('en-US',{month:'short',day:'numeric'})}</div>`
+              : '';
+            const safeName = m.name.replace(/\\/g,'\\\\').replace(/'/g,"\\'");
+            return `<div class="milestone-item ${isChecked?'green':autoColor}${isChecked?' done-manual':''}" id="ms-${safeKey}-${m.step}">
+              <div class="m-checkbox ${isChecked?'checked':''}"
+                   onclick="toggleMilestone('${escHtml(rlKey)}',${m.step},'${safeName}')"
+                   title="${isChecked?'Click to uncheck':'Click to mark complete'}">${isChecked?'✓':''}</div>
+              <div class="m-content">
+                <div class="m-name">${escHtml(m.name)}</div>
+                <div class="m-meta">${m.owner} · Due ${ds}</div>
+                ${completedLine}
+              </div>
+              <span class="m-badge ${isChecked?'green':autoColor}">${badgeLabel}</span>
+            </div>`;
+          }).join('');
+
+          return `<div class="int-card">
+            <div class="int-card-header" onclick="toggleBankCard('${safeKey}')">
+              <div class="int-card-name">🏦 ${escHtml(bankTaskName)}</div>
+              <div class="int-card-meta">
+                <span style="font-size:10px;color:#9ca3af">RL task · no INT ticket yet</span>
+              </div>
+              <span class="int-card-chevron" id="bank-chev-${safeKey}">▼</span>
+            </div>
+            <div class="int-card-body" id="bank-body-${safeKey}">
+            <div class="checklist-section-header pm-section-header" style="display:flex;align-items:center;justify-content:space-between">
+              <span>Project Manager Checklist</span>
+              <span id="br-count-${safeKey}" style="font-weight:600;opacity:0.85">${pmDone2}/${PM_CHECKLIST.length}</span>
+            </div>
+            <div class="int-card-milestones">${pmRows2}</div>
+            <div class="checklist-section-header int-section-header">Integrations Team Checklist</div>
+            <div class="int-card-milestones">${intRowsFb}</div>
+            ${apiFormHtmlFb}
+            </div><!-- /int-card-body -->
+          </div>`;
+        }).join('');
+
+        if (p.tickets.length > 0) {
+          intCardsHtml += `<div class="section-label" style="margin-top:14px;margin-bottom:6px;font-size:10px;letter-spacing:.08em;color:#6b7280">OTHER INT TICKETS</div>`;
+          intCardsHtml += p.tickets.map(t => {
+            const stale   = isStale(t);
+            const updDays = Math.floor((Date.now() - new Date(t.updated)) / 86400000);
+            return `<div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:10px 12px;display:flex;align-items:flex-start;gap:10px">
+              <a href="${escHtml(t.url)}" target="_blank" rel="noopener"
+                 style="flex-shrink:0;background:#4f46e5;color:#fff;font-size:10px;font-weight:700;padding:3px 7px;border-radius:4px;text-decoration:none;white-space:nowrap;letter-spacing:.03em">
+                ${escHtml(t.key)} ↗
+              </a>
+              <div style="flex:1;min-width:0">
+                <div style="font-size:12px;font-weight:600;color:#1e293b;margin-bottom:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escHtml(t.summary)}</div>
+                <div style="font-size:11px;color:#64748b;display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+                  ${t.assignee !== 'Unassigned' ? `<span>🔧 ${escHtml(t.assignee)}</span>` : ''}
+                  ${t.reporterName ? `<span>📝 ${escHtml(t.reporterName)}</span>` : ''}
+                  <span>📅 ${t.updated}</span>
+                  ${stale ? `<span class="stale-flag">⚠ Stale ${updDays}d</span>` : ''}
+                </div>
+              </div>
+              <span class="jira-status ${t.statusCls}" style="flex-shrink:0">${escHtml(t.statusName)}</span>
+            </div>`;
+          }).join('');
+        }
+      } else {
+        intCardsHtml = `<div class="int-no-tickets">🏦 No bank integration tickets found — <a href="https://vantaca.atlassian.net/jira/software/c/projects/INT/boards/69" target="_blank" style="color:#4f46e5">search the INT board →</a></div>`;
+      }
+    } else {
+      intCardsHtml = bankTickets.map(t => {
+        const safeKey = t.key.replace(/[^a-zA-Z0-9-]/g, '');
+        const stale   = isStale(t);
+        const intName = extractIntName(t.summary) || t.summary;
+
+        // ── Find matching RL bank entry (for taskStart + subtask items) ──
+        function findRLBankEntry(jiraIntName) {
+          const map   = p.bankReadinessMap || {};
+          const jNorm = normName(jiraIntName);
+          if (!jNorm) return null;
+          let bestEntry = null, bestLen = 0;
+          for (const [bankTaskName, entry] of Object.entries(map)) {
+            const bNorm = normName(bankTaskName);
+            const sharedPrefix = Math.max(
+              ...[4,5,6,7,8].map(n => (jNorm.slice(0,n) === bNorm.slice(0,n) ? n : 0))
+            );
+            if (sharedPrefix >= 4 && sharedPrefix > bestLen) {
+              bestLen  = sharedPrefix;
+              bestEntry = entry;
+            }
+          }
+          return bestEntry;
+        }
+
+        const rlBankEntry = findRLBankEntry(intName);
+        const rlBankItems = rlBankEntry?.items || [];
+        const taskStart   = rlBankEntry?.taskStart || null;  // Rocketlane bank task start date
+        const rlByNorm    = {};
+        rlBankItems.forEach(item => { rlByNorm[normName(item.name)] = item; });
+
+        function findRLMatch(pmName) {
+          const pn = normName(pmName);
+          // Pass 1: shared-prefix match (6+ chars)
+          for (const [rn, item] of Object.entries(rlByNorm)) {
+            if (pn.length >= 6 && rn.startsWith(pn.slice(0,6))) return item;
+            if (rn.length >= 6 && pn.startsWith(rn.slice(0,6))) return item;
+          }
+          // Pass 2: longest shared word sequence (handles "All Banks Notified" ↔ "Bank Notified")
+          const pWords = pn.match(/[a-z]{4,}/g) || [];
+          for (const [rn, item] of Object.entries(rlByNorm)) {
+            const rWords = new Set(rn.match(/[a-z]{4,}/g) || []);
+            if (pWords.length > 0 && pWords.filter(w => rWords.has(w)).length >= Math.min(2, pWords.length)) return item;
+          }
+          return null;
+        }
+
+        // Helper: get the on-track date for a PM item (for display)
+        function getPMOnTrackDate(pmItem) {
+          const gl = parseLocalDate(p.goLive);
+          const ts = taskStart ? parseLocalDate(taskStart) : new Date(gl.getTime() - 60 * 86400000);
+          if (pmItem.phase === 3) return new Date(gl.getTime() + pmItem.onTrackCd * 86400000);
+          return addBusinessDays(ts, pmItem.onTrackBd);
+        }
+
+        // ── PM Checklist: always rendered; RL auto-checks; status colors from milestone logic ──
+        const pmDone = PM_CHECKLIST.filter(item => {
+          const rlMatch = findRLMatch(item.name);
+          const rlDone  = rlMatch && (rlMatch.rlStatus || '').toLowerCase().includes('complet');
+          return rlDone || brState[`${t.key}__${item.id}`] === true;
+        }).length;
+
+        const pmRows = PM_CHECKLIST.map(pmItem => {
+          const rlMatch     = findRLMatch(pmItem.name);
+          const rlDone      = rlMatch && (rlMatch.rlStatus || '').toLowerCase().includes('complet');
+          const manKey      = `${t.key}__${pmItem.id}`;
+          const manDone     = !rlDone && brState[manKey] === true;
+          const isDone      = rlDone || manDone;
+          const autoColor   = computePMItemStatus(pmItem, taskStart, p.goLive, isDone);
+          const dispColor   = autoColor === 'blocker' ? 'red' : autoColor;
+          const isBlocker   = autoColor === 'blocker' && !isDone;
+          const onTrackDate = getPMOnTrackDate(pmItem);
+          const onTrackStr  = onTrackDate.toLocaleDateString('en-US', { month:'short', day:'numeric' });
+
+          const onclickStr  = rlDone
+            ? `style="cursor:default" title="Completed in Rocketlane — read-only"`
+            : `onclick="toggleBRItem('${escHtml(t.key)}','${pmItem.id}')" title="Click to toggle"`;
+          const metaLabel   = isDone
+            ? (rlDone ? '<span style="color:#16a34a">✓ Rocketlane</span>' : '<span style="color:#4f46e5">✓ Manual</span>')
+            : `PM · on track by ${onTrackStr}`;
+          const badgeText   = isDone
+            ? (rlDone ? 'RL ✓' : 'Manual ✓')
+            : isBlocker ? '🚨 Blocker'
+            : { red:'✗ Overdue', orange:'⚠ At Risk', green:'✓ On Track', white:`Due ${onTrackStr}` }[dispColor] || `Due ${onTrackStr}`;
+
+          return `<div class="milestone-item ${isDone?'done-manual':isBlocker?'blocker':dispColor}" id="br-row-${safeKey}-${pmItem.id}">
+            <div class="m-checkbox${isDone?' checked':''}" id="br-cb-${safeKey}-${pmItem.id}" ${onclickStr}>${isDone?'✓':''}</div>
+            <div class="m-content">
+              <div class="m-name">${escHtml(pmItem.name)}</div>
+              <div class="m-meta">${metaLabel}</div>
+            </div>
+            <span class="m-badge ${isDone?'green':dispColor}" id="br-badge-${safeKey}-${pmItem.id}">${badgeText}</span>
+          </div>`;
+        }).join('');
+
+        // ── API Form Complete (auto from Jira or manual override) ──
+        const apiFormTicket = findJiraApiForm(p);
+        const apiFormJira   = !!apiFormTicket;
+        const apiFormManual = !apiFormJira && brState[`${t.key}__api-form`] === true;
+        const apiFormDone   = apiFormJira || apiFormManual;
+        const apiFormHtml   = `<div class="checklist-section-header" style="background:#ecfdf5;color:#065f46;border-top:2px solid #d1fae5;margin-top:2px">API Form</div>
+          <div class="int-card-milestones">
+            <div class="milestone-item ${apiFormDone?'green done-manual':'white'}" id="br-row-${safeKey}-api-form">
+              <div class="m-checkbox${apiFormDone?' checked':''}" id="br-cb-${safeKey}-api-form"
+                   ${apiFormJira ? 'style="cursor:default" title="Auto-detected: API form found in Jira"'
+                                 : `onclick="toggleBRItem('${escHtml(t.key)}','api-form')" title="${apiFormManual?'Click to uncheck':'Click to mark complete'}"`}>
+                ${apiFormDone?'✓':''}
+              </div>
+              <div class="m-content">
+                <div class="m-name">API Form Complete</div>
+                <div class="m-meta">${apiFormJira
+                  ? `<a href="${escHtml(apiFormTicket.url)}" target="_blank" style="color:#4f46e5">${escHtml(apiFormTicket.key)} ↗</a>`
+                  : `<span style="color:#6b7280">Required before go-live</span>`}</div>
+              </div>
+              <span class="m-badge ${apiFormDone?'green':'white'}" id="br-badge-${safeKey}-api-form">${apiFormJira ? '✓ Jira' : (apiFormManual ? 'Manual ✓' : 'Pending')}</span>
+            </div>
+          </div>`;
+
+        // ── INT Checklist: steps 5-9 from lifecycle (Credentials → Post GL) ──
+        const intSteps = MILESTONES.filter(m => m.step >= 5 && m.step <= 9);
+        const intRows  = intSteps.map(m => {
+          const key       = getMilestoneKey(t.key, m.step);
+          const state     = milestoneState[key];
+          const isChecked = state?.completed === true;
+          const autoColor = computeMilestoneStatus(m, p.goLiveDate, p.status);
+          const due = parseLocalDate(p.goLive); due.setDate(due.getDate() + m.daysOffset);
+          const ds  = due.toLocaleDateString('en-US',{month:'short',day:'numeric'});
+          const badgeLabel = isChecked ? '✓ Complete'
+            : { green:'✓ On Track', orange:'⚠ Due Soon', red:'✗ Overdue', white:`Due ${ds}` }[autoColor];
+          const completedLine = isChecked && state
+            ? `<div class="m-completedby">✓ ${escHtml(state.by||'Team')} · ${new Date(state.at).toLocaleDateString('en-US',{month:'short',day:'numeric'})}</div>`
+            : '';
+          const safeName = m.name.replace(/\\/g,'\\\\').replace(/'/g,"\\'");
+          return `<div class="milestone-item ${isChecked?'green':autoColor}${isChecked?' done-manual':''}" id="ms-${safeKey}-${m.step}">
+            <div class="m-checkbox ${isChecked?'checked':''}"
+                 onclick="toggleMilestone('${escHtml(t.key)}',${m.step},'${safeName}')"
+                 title="${isChecked?'Click to uncheck':'Click to mark complete'}">${isChecked?'✓':''}</div>
+            <div class="m-content">
+              <div class="m-name">${escHtml(m.name)}</div>
+              <div class="m-meta">${m.owner} · Due ${ds}</div>
+              ${completedLine}
+            </div>
+            <span class="m-badge ${isChecked?'green':autoColor}">${badgeLabel}</span>
+          </div>`;
+        }).join('');
+
+        return `<div class="int-card">
+          <div class="int-card-header" onclick="toggleBankCard('${safeKey}')">
+            <div class="int-card-name">🏦 ${escHtml(intName)}</div>
+            <div class="int-card-jira" onclick="event.stopPropagation()">
+              <a class="int-card-key" href="${escHtml(t.url)}" target="_blank" rel="noopener">${escHtml(t.key)}</a>
+            </div>
+            <div class="int-card-meta">
+              <span class="jira-status ${t.statusCls}">${escHtml(t.statusName)}</span>
+              ${t.assignee !== 'Unassigned' ? `<span>🔧 ${escHtml(t.assignee)}</span>` : ''}
+              ${t.reporterName ? `<span>📝 ${escHtml(t.reporterName)}</span>` : ''}
+              ${stale ? `<span class="stale-flag">⚠ Stale ${Math.floor((Date.now()-new Date(t.updated))/86400000)}d</span>` : ''}
+            </div>
+            <span class="int-card-chevron" id="bank-chev-${safeKey}">▼</span>
+          </div>
+          <div class="int-card-body" id="bank-body-${safeKey}">
+          <div class="checklist-section-header pm-section-header" style="display:flex;align-items:center;justify-content:space-between">
+            <span>Project Manager Checklist</span>
+            <span id="br-count-${safeKey}" style="font-weight:600;opacity:0.85">${pmDone}/${PM_CHECKLIST.length}</span>
+          </div>
+          <div class="int-card-milestones">${pmRows}</div>
+          <div class="checklist-section-header int-section-header">Integrations Team Checklist</div>
+          <div class="int-card-milestones">${intRows}</div>
+          ${apiFormHtml}
+          ${(() => {
+            const recentComments = (t.comments || []).slice(-3).reverse(); // most recent first
+            if (!recentComments.length) return '';
+            const commentRows = recentComments.map(c => {
+              const dateStr = c.date ? new Date(c.date + 'T00:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}) : '';
+              // Strip [INT-*] tags and truncate long bodies
+              const body = c.body.replace(/\[INT-[A-Z]+\][^\n]*/g,'').trim();
+              const truncated = body.length > 300 ? body.slice(0,300) + '…' : body;
+              return `<div class="activity-item">
+                <div class="activity-meta">
+                  <span class="activity-source jira-source">Jira</span>
+                  <span class="activity-author">${escHtml(c.author)}</span>
+                  <span class="activity-date">${dateStr}</span>
+                </div>
+                <div class="activity-body">${escHtml(truncated)}</div>
+              </div>`;
+            }).join('');
+            return `<div class="activity-feed">
+              <div class="activity-feed-header">💬 Recent Jira Comments</div>
+              ${commentRows}
+            </div>`;
+          })()}
+          <div class="int-card-comment-area">
+            <div style="padding:4px 10px;display:flex;justify-content:flex-end">
+              <button class="comment-btn" onclick="toggleCommentForm('${safeKey}')">💬 Add Jira Comment</button>
+            </div>
+            <div class="comment-form" id="cf-${safeKey}" style="display:none">
+              <textarea class="comment-textarea" id="ct-${safeKey}" placeholder="Type your comment…"></textarea>
+              <div class="comment-actions">
+                <button class="comment-submit" id="cs-${safeKey}" onclick="submitComment('${safeKey}','${escHtml(t.key)}')">Post Comment</button>
+                <button class="comment-cancel" onclick="toggleCommentForm('${safeKey}')">Cancel</button>
+                <span class="comment-status" id="cst-${safeKey}"></span>
+              </div>
+            </div>
+          </div>
+          </div><!-- /int-card-body -->
+        </div>`;
+      }).join('');
+      // ── Non-bank tickets: show as clickable cards below bank cards ──────────
+      const nonBankTickets = p.tickets.filter(t => !isBankTicket(t.summary));
+      if (nonBankTickets.length) {
+        intCardsHtml += `<div class="section-label" style="margin-top:14px;margin-bottom:6px;font-size:10px;letter-spacing:.08em;color:#6b7280">OTHER INT TICKETS</div>`;
+        intCardsHtml += nonBankTickets.map(t => {
+          const stale   = isStale(t);
+          const safeKey = t.key.replace(/[^a-zA-Z0-9-]/g, '');
+          const updDays = Math.floor((Date.now() - new Date(t.updated)) / 86400000);
+          return `<div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:10px 12px;display:flex;align-items:flex-start;gap:10px">
+            <a href="${escHtml(t.url)}" target="_blank" rel="noopener"
+               style="flex-shrink:0;background:#4f46e5;color:#fff;font-size:10px;font-weight:700;padding:3px 7px;border-radius:4px;text-decoration:none;white-space:nowrap;letter-spacing:.03em">
+              ${escHtml(t.key)} ↗
+            </a>
+            <div style="flex:1;min-width:0">
+              <div style="font-size:12px;font-weight:600;color:#1e293b;margin-bottom:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escHtml(t.summary)}</div>
+              <div style="font-size:11px;color:#64748b;display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+                ${t.assignee !== 'Unassigned' ? `<span>🔧 ${escHtml(t.assignee)}</span>` : ''}
+                ${t.reporterName ? `<span>📝 ${escHtml(t.reporterName)}</span>` : ''}
+                <span>📅 ${t.updated}</span>
+                ${stale ? `<span class="stale-flag">⚠ Stale ${updDays}d</span>` : ''}
+              </div>
+            </div>
+            <span class="jira-status ${t.statusCls}" style="flex-shrink:0">${escHtml(t.statusName)}</span>
+          </div>`;
+        }).join('');
+      }
+    }
+  }
+
+  // ── Right column: all Jira tickets (unchanged from before) ───────────────────
+  let jiraHtml;
+  if (!jiraLoaded) {
+    jiraHtml = `<div class="no-tickets">⏳ Loading Jira tickets…</div>`;
+  } else if (jiraError) {
+    jiraHtml = `<div class="no-tickets">⚠️ Jira unavailable — <a href="https://vantaca.atlassian.net/jira/software/c/projects/INT/boards/69" target="_blank" style="color:#4f46e5">Open INT board</a></div>`;
+  } else if (!p.tickets.length) {
+    jiraHtml = `<div class="no-tickets">🎫 No INT tickets matched to this client.<br><span style="font-size:11px"><a href="https://vantaca.atlassian.net/jira/software/c/projects/INT/boards/69" target="_blank" style="color:#4f46e5">Search the INT board →</a></span></div>`;
+  } else {
+    jiraHtml = p.tickets.map(t => {
+      const stale   = isStale(t);
+      const safeKey = t.key.replace(/[^a-zA-Z0-9-]/g,'');
+      return `<div style="margin-bottom:8px">
+        <a class="jira-ticket" href="${escHtml(t.url)}" target="_blank" rel="noopener">
+          <span class="jira-key">${escHtml(t.key)}</span>
+          <div class="jira-content">
+            <div class="jira-summary">${escHtml(t.summary)}</div>
+            <div class="jira-meta">
+              <span>🔧 ${escHtml(t.assignee)}</span>
+              ${t.reporterName ? `<span>📝 ${escHtml(t.reporterName)}</span>` : ''}
+              <span>📅 Updated ${t.updated}</span>
+              ${stale ? `<span class="stale-flag">⚠ Stale ${Math.floor((Date.now()-new Date(t.updated))/86400000)}d</span>` : ''}
+            </div>
+          </div>
+          <span class="jira-status ${t.statusCls}">${escHtml(t.statusName)}</span>
+        </a>
+        <div style="padding:3px 10px 0;display:flex;justify-content:flex-end">
+          <button class="comment-btn" onclick="toggleCommentForm('${safeKey}')">💬 Add Comment</button>
+        </div>
+        <div class="comment-form" id="cf-${safeKey}" style="display:none">
+          <textarea class="comment-textarea" id="ct-${safeKey}" placeholder="Type your comment… (supports Markdown)"></textarea>
+          <div class="comment-actions">
+            <button class="comment-submit" id="cs-${safeKey}" onclick="submitComment('${safeKey}','${escHtml(t.key)}')">Post Comment</button>
+            <button class="comment-cancel" onclick="toggleCommentForm('${safeKey}')">Cancel</button>
+            <span class="comment-status" id="cst-${safeKey}"></span>
+          </div>
+        </div>
+      </div>`;
+    }).join('');
+  }
+
+  // ── Notes ────────────────────────────────────────────────────────────────────
+  const primaryTicket = (p.tickets.find(t => isBankTicket(t.summary)) || p.tickets[0])?.key || '';
+  const safePrimary   = primaryTicket.replace(/[^a-zA-Z0-9-]/g, '');
+  const projectNotes  = notesState[p.id] || [];
+  const notesListHtml = projectNotes.length
+    ? projectNotes.map(n => {
+        const dt = new Date(n.at).toLocaleString('en-US',{month:'short',day:'numeric',year:'numeric',hour:'2-digit',minute:'2-digit'});
+        return `<div class="note-item"><div class="note-meta">📝 ${escHtml(n.by)} &nbsp;·&nbsp; ${dt}</div><div class="note-text">${escHtml(n.text)}</div></div>`;
+      }).join('')
+    : `<div class="notes-empty">No notes yet — add the first one below.</div>`;
+
+  return `<div class="detail-grid">
+    <div>
+      <div class="section-label">Bank Integration Checklists
+        <span style="font-weight:400;text-transform:none;font-size:10px;color:#9ca3af"> · checkboxes sync via Jira</span>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:10px">${intCardsHtml}</div>
+    </div>
+    <div class="detail-right">
+      <div class="detail-section">
+        <div class="section-label">Team</div>
+        <div class="team-chips">${pmChips||''}${intChips||''}</div>
+        ${!pmChips&&!intChips?'<div style="font-size:12px;color:#9ca3af;margin-top:6px">No team members found in Rocketlane</div>':''}
+      </div>
+      <div class="detail-section">
+        <div class="section-label">Rocketlane Details</div>
+        <div class="info-row">
+          <strong>Project:</strong> ${escHtml(p.projectName)}<br>
+          <strong>Status:</strong> ${escHtml(p.status)}<br>
+          <strong>Go-Live:</strong> ${parseLocalDate(p.goLive).toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric',year:'numeric'})}<br>
+          <strong>Countdown:</strong> ${glLabel}<br>
+          <strong>Readiness:</strong> ${Math.round(p.progress)}% <span style="color:#9ca3af;font-size:11px">(${p.preGlDone}/${p.preGlTotal} pre-go-live tasks)</span>
+        </div>
+        <a class="rl-link" href="https://vantaca.rocketlane.com/projects/${escHtml(p.id)}/plan" target="_blank" rel="noopener">↗ Open in Rocketlane</a>
+      </div>
+      <div class="jira-section">
+        <div class="section-label" style="margin-bottom:10px">INT Tickets — Jira
+          ${p.tickets.length ? `<a href="https://vantaca.atlassian.net/jira/software/c/projects/INT/boards/69" target="_blank" style="font-weight:400;text-transform:none;font-size:10px;color:#4f46e5;margin-left:6px">View full board →</a>` : ''}
+        </div>
+        ${jiraHtml}
+      </div>
+      <div class="notes-section">
+        <div class="notes-header">
+          <div class="section-label" style="margin:0">📋 Running Notes
+            <span style="font-weight:400;text-transform:none;font-size:10px;color:#9ca3af"> · timestamped · syncs via Jira</span>
+          </div>
+          <span id="notes-count-${p.id}" style="font-size:10px;color:#9ca3af">${projectNotes.length} note${projectNotes.length!==1?'s':''}</span>
+        </div>
+        <div class="notes-list" id="notes-list-${p.id}">${notesListHtml}</div>
+        <div class="note-input-area">
+          <textarea class="note-textarea" id="note-ta-${p.id}"
+            placeholder="Add a note…"
+            onkeydown="if(event.key==='Enter'&&(event.metaKey||event.ctrlKey)){addNote('${p.id}','${safePrimary}');event.preventDefault();}"></textarea>
+          <div class="note-actions">
+            <button class="note-submit" id="note-btn-${p.id}" onclick="addNote('${p.id}','${safePrimary}')">Add Note</button>
+            <span style="font-size:10px;color:#9ca3af">⌘↵ to save</span>
+            <span class="note-status-msg" id="note-st-${p.id}"></span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>`;
+}
+
+function updateStats() {
+  const total  = allProjects.length;
+  const red    = allProjects.filter(p=>p.statusColor==='red').length;
+  const orange = allProjects.filter(p=>p.statusColor==='orange').length;
+  const green  = allProjects.filter(p=>p.statusColor==='green').length;
+  const stale  = jiraLoaded ? allProjects.filter(p=>p.tickets.some(t=>isStale(t))).length : 0;
+  document.getElementById('statsBar').innerHTML = `
+    <div class="stat-chip"><span class="stat-dot" style="background:#a5b4fc"></span> ${total} clients</div>
+    <div class="stat-chip"><span class="stat-dot" style="background:var(--red)"></span> ${red} critical</div>
+    <div class="stat-chip"><span class="stat-dot" style="background:var(--orange)"></span> ${orange} at risk</div>
+    <div class="stat-chip"><span class="stat-dot" style="background:var(--green)"></span> ${green} live/on track</div>
+    ${stale>0?`<div class="stat-chip"><span class="stat-dot" style="background:#fbbf24"></span> ${stale} stale Jira</div>`:''}
+    ${jiraLoaded&&!jiraError?`<div class="stat-chip"><span class="stat-dot" style="background:#818cf8"></span> ${jiraTickets.length} INT tickets</div>`:''}
+  `;
+}
+
+function toggleExpand(id) { if(expandedRows.has(id)) expandedRows.delete(id); else expandedRows.add(id); renderTable(); }
+function escHtml(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+/* ══ JIRA COMMENTS ══ */
+function toggleBankCard(safeKey) {
+  const body    = document.getElementById('bank-body-' + safeKey);
+  const chevron = document.getElementById('bank-chev-' + safeKey);
+  if (!body) return;
+  const isCollapsed = body.classList.toggle('collapsed');
+  if (chevron) chevron.classList.toggle('collapsed', isCollapsed);
+}
+
+function toggleCommentForm(safeKey) {
+  const form = document.getElementById(`cf-${safeKey}`);
+  if (!form) return;
+  const isOpen = form.style.display !== 'none';
+  form.style.display = isOpen ? 'none' : 'block';
+  if (!isOpen) {
+    const ta = document.getElementById(`ct-${safeKey}`);
+    if (ta) ta.focus();
+  }
+}
+
+async function submitComment(safeKey, issueKey) {
+  const ta  = document.getElementById(`ct-${safeKey}`);
+  const btn = document.getElementById(`cs-${safeKey}`);
+  const st  = document.getElementById(`cst-${safeKey}`);
+  const text = (ta?.value || '').trim();
+  if (!text) { if (st) { st.textContent = 'Comment cannot be empty.'; st.style.color = '#b91c1c'; } return; }
+
+  btn.disabled = true; btn.textContent = 'Posting…';
+  if (st) { st.textContent = ''; }
+
+  try {
+    await callMcp(
+      'mcp__febcc92f-9040-4ea4-b33e-6aacbf9fcb04__addCommentToJiraIssue',
+      {
+        cloudId:       JIRA_CLOUD,
+        issueIdOrKey:  issueKey,
+        body:          text,
+        contentFormat: 'markdown',
+      }
+    );
+    ta.value = '';
+    if (st) { st.textContent = '✓ Posted!'; st.style.color = '#15803d'; }
+    btn.textContent = 'Post Comment'; btn.disabled = false;
+    setTimeout(() => { toggleCommentForm(safeKey); if (st) st.textContent = ''; }, 1800);
+  } catch(e) {
+    if (st) { st.textContent = `Error: ${e?.message || 'Could not post comment'}`; st.style.color = '#b91c1c'; }
+    btn.textContent = 'Post Comment'; btn.disabled = false;
+  }
+}
+
+/* ══ VIEW SWITCHER ══ */
+
+/* ══ API FORM LOOKUP — uses already-loaded p.tickets ══
+   The main loadJira() JQL now includes API form tickets (Done or not) from 2025+,
+   so they're already assigned to the right client via matchesClient().
+   We just need to find which of a client's tickets is an API form ticket.
+*/
+const API_FORM_RE = /api\s*agreement\s*form|signed\s*api\s*form|api\s*form/i;
+
+function findJiraApiForm(client) {
+  if (!client.tickets) return null;
+  return client.tickets.find(t => API_FORM_RE.test(t.summary)) || null;
+}
+
+
+loadData();
+</script>
+</body>
+</html>

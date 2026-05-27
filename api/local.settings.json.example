@@ -1,0 +1,16 @@
+{
+  "IsEncrypted": false,
+  "Values": {
+    "AzureWebJobsStorage": "",
+    "FUNCTIONS_WORKER_RUNTIME": "python",
+    "DATABRICKS_SERVER_HOSTNAME": "adb-XXXXX.azuredatabricks.net",
+    "DATABRICKS_HTTP_PATH": "/sql/1.0/warehouses/XXXXX",
+    "DATABRICKS_ACCESS_TOKEN": "your-databricks-pat-here",
+    "JIRA_URL": "https://vantaca.atlassian.net",
+    "JIRA_EMAIL": "you@vantaca.com",
+    "JIRA_API_TOKEN": "your-jira-api-token-here"
+  },
+  "Host": {
+    "CORS": "*"
+  }
+}
