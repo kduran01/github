@@ -259,10 +259,9 @@ tbody td { padding: 9px 12px; vertical-align: middle; }
     <option value="white">⬜ Future</option>
   </select>
   <div class="month-tabs">
-    <button class="month-tab active" id="tabBoth" onclick="setMonth('all')">All Months</button>
+    <button class="month-tab active" id="tabBoth" onclick="setMonth('all')">All</button>
     <button class="month-tab" id="tabM1"  onclick="setMonth('m1')" style="display:none">—</button>
     <button class="month-tab" id="tabM2"  onclick="setMonth('m2')" style="display:none">—</button>
-    <button class="month-tab" id="tabM3"  onclick="setMonth('m3')" style="display:none">—</button>
   </div>
 
 </div>
@@ -427,24 +426,19 @@ const MILESTONES = [
   const now  = new Date();
   const m1   = new Date(now.getFullYear(), now.getMonth() + 1, 1);
   const m2   = new Date(now.getFullYear(), now.getMonth() + 2, 1);
-  const m3   = new Date(now.getFullYear(), now.getMonth() + 3, 1);
-  const mEnd = new Date(now.getFullYear(), now.getMonth() + 4, 0); // last day of m3
+  const mEnd = new Date(now.getFullYear(), now.getMonth() + 3, 0); // last day of m2
 
   const pad  = n => String(n).padStart(2,'0');
   window.WINDOW_START  = `${m1.getFullYear()}-${pad(m1.getMonth()+1)}-01`;
   window.WINDOW_END    = `${mEnd.getFullYear()}-${pad(mEnd.getMonth()+1)}-${pad(mEnd.getDate())}`;
   window.MONTH1_NUM    = m1.getMonth() + 1;
   window.MONTH2_NUM    = m2.getMonth() + 1;
-  window.MONTH3_NUM    = m3.getMonth() + 1;
   window.MONTH1_YEAR   = m1.getFullYear();
   window.MONTH2_YEAR   = m2.getFullYear();
-  window.MONTH3_YEAR   = m3.getFullYear();
   window.MONTH1_LABEL  = m1.toLocaleDateString('en-US', {month:'long', year:'numeric'});
   window.MONTH2_LABEL  = m2.toLocaleDateString('en-US', {month:'long', year:'numeric'});
-  window.MONTH3_LABEL  = m3.toLocaleDateString('en-US', {month:'long', year:'numeric'});
   window.MONTH1_SHORT  = m1.toLocaleDateString('en-US', {month:'short'});
   window.MONTH2_SHORT  = m2.toLocaleDateString('en-US', {month:'short'});
-  window.MONTH3_SHORT  = m3.toLocaleDateString('en-US', {month:'short'});
 })();
 
 /* ══ STATE ══ */
@@ -1505,20 +1499,18 @@ function updateStatusBar(state, rlErr, jiraErr) {
 function setMonth(m) {
   activeMonth = m;
   document.querySelectorAll('.month-tab').forEach(t => t.classList.remove('active'));
-  const idMap = { all:'tabBoth', m1:'tabM1', m2:'tabM2', m3:'tabM3' };
+  const idMap = { all:'tabBoth', m1:'tabM1', m2:'tabM2' };
   if (idMap[m]) document.getElementById(idMap[m]).classList.add('active');
   expandedRows.clear(); renderTable();
 }
 
 function initMonthTabs() {
   const sub = document.getElementById('dashSubtitle');
-  if (sub) sub.textContent = `${MONTH1_SHORT} – ${MONTH3_SHORT} ${MONTH1_YEAR === MONTH3_YEAR ? MONTH1_YEAR : MONTH1_YEAR + '/' + MONTH3_YEAR} · Vantaca Implementations`;
+  if (sub) sub.textContent = `${MONTH1_SHORT} – ${MONTH2_SHORT} ${MONTH1_YEAR === MONTH2_YEAR ? MONTH1_YEAR : MONTH1_YEAR + '/' + MONTH2_YEAR} · Vantaca Implementations`;
   const t1 = document.getElementById('tabM1');
   const t2 = document.getElementById('tabM2');
-  const t3 = document.getElementById('tabM3');
   if (t1) { t1.textContent = MONTH1_LABEL; t1.style.display = ''; }
   if (t2) { t2.textContent = MONTH2_LABEL; t2.style.display = ''; }
-  if (t3) { t3.textContent = MONTH3_LABEL; t3.style.display = ''; }
 }
 
 function sortBy(field) {
@@ -1537,9 +1529,10 @@ function getFiltered() {
   const statusF = document.getElementById('statusFilter')?.value||'';
   const riskF   = document.getElementById('riskFilter')?.value||'';
   return allProjects.filter(p => {
+    // Always restrict to the 2-month window — never show past months
+    if (p.goLive < WINDOW_START || p.goLive > WINDOW_END) return false;
     if (activeMonth === 'm1' && parseLocalDate(p.goLive).getMonth()+1 !== MONTH1_NUM) return false;
     if (activeMonth === 'm2' && parseLocalDate(p.goLive).getMonth()+1 !== MONTH2_NUM) return false;
-    if (activeMonth === 'm3' && parseLocalDate(p.goLive).getMonth()+1 !== MONTH3_NUM) return false;
     if (search && !p.name.toLowerCase().includes(search) && !p.pm.toLowerCase().includes(search)) return false;
     if (statusF && p.status !== statusF) return false;
     if (riskF   && p.statusColor !== riskF) return false;
