@@ -274,16 +274,16 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
             )
 
     except requests.exceptions.RequestException as e:
-        logging.error(f"Rocketlane API error: {e}")
+        logging.error(f"Rocketlane API error: {e}", exc_info=True)
         return func.HttpResponse(
-            json.dumps({"error": f"Rocketlane API error: {str(e)}"}),
-            status_code=500,
+            json.dumps({"error": "Upstream API error"}),
+            status_code=502,
             mimetype="application/json",
         )
     except Exception as e:
-        logging.error(f"Error: {e}")
+        logging.error(f"Error in Rocketlane function: {e}", exc_info=True)
         return func.HttpResponse(
-            json.dumps({"error": str(e)}),
+            json.dumps({"error": "Internal server error"}),
             status_code=500,
             mimetype="application/json",
         )

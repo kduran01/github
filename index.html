@@ -1879,7 +1879,7 @@ function renderDetail(p) {
 
             const onclickStr = rlDone
               ? `style="cursor:default" title="Completed in Rocketlane — read-only"`
-              : `onclick="toggleBRItem('${rlKey}','${pmItem.id}')" title="Click to toggle"`;
+              : `onclick="toggleBRItem('${escHtml(rlKey)}','${escHtml(pmItem.id)}')" title="Click to toggle"`;
             const metaLabel = isDone
               ? (rlDone ? '<span style="color:#16a34a">✓ Rocketlane</span>' : '<span style="color:#4f46e5">✓ Manual</span>')
               : `PM · on track by ${onTrackStr}`;
@@ -1935,7 +1935,7 @@ function renderDetail(p) {
             const completedLine = isChecked && state
               ? `<div class="m-completedby">✓ ${escHtml(state.by||'Team')} · ${new Date(state.at).toLocaleDateString('en-US',{month:'short',day:'numeric'})}</div>`
               : '';
-            const safeName = m.name.replace(/\\/g,'\\\\').replace(/'/g,"\\'");
+            const safeName = escHtml(m.name.replace(/\\/g,'\\\\').replace(/'/g,"\\'"));
             return `<div class="milestone-item ${isChecked?'green':autoColor}${isChecked?' done-manual':''}" id="ms-${safeKey}-${m.step}">
               <div class="m-checkbox ${isChecked?'checked':''}"
                    onclick="toggleMilestone('${escHtml(rlKey)}',${m.step},'${safeName}')"
@@ -2084,7 +2084,7 @@ function renderDetail(p) {
 
           const onclickStr  = rlDone
             ? `style="cursor:default" title="Completed in Rocketlane — read-only"`
-            : `onclick="toggleBRItem('${escHtml(t.key)}','${pmItem.id}')" title="Click to toggle"`;
+            : `onclick="toggleBRItem('${escHtml(t.key)}','${escHtml(pmItem.id)}')" title="Click to toggle"`;
           const metaLabel   = isDone
             ? (rlDone ? '<span style="color:#16a34a">✓ Rocketlane</span>' : '<span style="color:#4f46e5">✓ Manual</span>')
             : `PM · on track by ${onTrackStr}`;
@@ -2140,7 +2140,7 @@ function renderDetail(p) {
           const completedLine = isChecked && state
             ? `<div class="m-completedby">✓ ${escHtml(state.by||'Team')} · ${new Date(state.at).toLocaleDateString('en-US',{month:'short',day:'numeric'})}</div>`
             : '';
-          const safeName = m.name.replace(/\\/g,'\\\\').replace(/'/g,"\\'");
+          const safeName = escHtml(m.name.replace(/\\/g,'\\\\').replace(/'/g,"\\'"));
           return `<div class="milestone-item ${isChecked?'green':autoColor}${isChecked?' done-manual':''}" id="ms-${safeKey}-${m.step}">
             <div class="m-checkbox ${isChecked?'checked':''}"
                  onclick="toggleMilestone('${escHtml(t.key)}',${m.step},'${safeName}')"

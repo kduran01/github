@@ -1,26 +1,52 @@
 import azure.functions as func
 import json
 import os
+import re
 import logging
 import requests
 from requests.auth import HTTPBasicAuth
+
+_ISSUE_KEY_RE = re.compile(r'^[A-Z][A-Z0-9]+-\d+$')
+_ALLOWED_OPERATIONS = {'searchJiraIssuesUsingJql', 'getJiraIssue', 'addCommentToJiraIssue', 'atlassianUserInfo'}
+_JQL_REQUIRED_SCOPE = 'project = "INT"'
+
+
+def _validate_issue_key(key: str) -> bool:
+    return bool(key and _ISSUE_KEY_RE.match(key))
+
+
+def _enforce_jql_scope(jql: str) -> str:
+    """Ensure JQL is scoped to the INT project only."""
+    if not jql:
+        raise ValueError("Missing jql")
+    normalized = jql.strip()
+    if 'project = "INT"' not in normalized and "project = 'INT'" not in normalized:
+        raise ValueError("JQL must be scoped to project = \"INT\"")
+    return normalized
+
 
 def main(req: func.HttpRequest) -> func.HttpResponse:
     logging.info('Jira function triggered')
 
     try:
-        # Get request parameters
-        req_body = req.get_json()
+        req_body  = req.get_json()
         operation = req_body.get('operation')
 
-        # Get Jira connection details from environment variables
-        jira_url = os.environ.get('JIRA_URL', 'https://vantaca.atlassian.net')
-        jira_email = os.environ.get('JIRA_EMAIL')
+        if operation not in _ALLOWED_OPERATIONS:
+            return func.HttpResponse(
+                json.dumps({"error": "Unknown or disallowed operation"}),
+                status_code=400,
+                mimetype="application/json"
+            )
+
+        jira_url      = os.environ.get('JIRA_URL', 'https://vantaca.atlassian.net')
+        jira_email    = os.environ.get('JIRA_EMAIL')
         jira_api_token = os.environ.get('JIRA_API_TOKEN')
 
         if not all([jira_email, jira_api_token]):
+            logging.error("Missing Jira configuration env vars")
             return func.HttpResponse(
-                json.dumps({"error": "Missing Jira configuration"}),
+                json.dumps({"error": "Server configuration error"}),
                 status_code=500,
                 mimetype="application/json"
             )
@@ -31,121 +57,106 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
             "Content-Type": "application/json"
         }
 
-        # Handle different operations
         if operation == 'searchJiraIssuesUsingJql':
-            jql = req_body.get('jql')
-            if not jql:
+            try:
+                jql = _enforce_jql_scope(req_body.get('jql', ''))
+            except ValueError as e:
                 return func.HttpResponse(
-                    json.dumps({"error": "Missing 'jql' parameter"}),
+                    json.dumps({"error": str(e)}),
                     status_code=400,
                     mimetype="application/json"
                 )
 
-            # Search Jira issues using JQL
-            search_url = f"{jira_url}/rest/api/3/search"
             payload = {
-                "jql": jql,
-                "maxResults": req_body.get('maxResults', 100),
-                "fields": req_body.get('fields', ['*all'])
+                "jql":        jql,
+                "maxResults": min(int(req_body.get('maxResults', 100)), 200),
+                "fields":     req_body.get('fields', ['*all'])
             }
-
-            response = requests.post(search_url, json=payload, headers=headers, auth=auth)
+            response = requests.post(
+                f"{jira_url}/rest/api/3/search",
+                json=payload, headers=headers, auth=auth, timeout=30
+            )
             response.raise_for_status()
-
             return func.HttpResponse(
-                json.dumps(response.json()),
-                status_code=200,
-                mimetype="application/json"
+                json.dumps(response.json()), status_code=200, mimetype="application/json"
             )
 
         elif operation == 'getJiraIssue':
-            issue_key = req_body.get('issueKey')
-            if not issue_key:
+            issue_key = req_body.get('issueKey', '')
+            if not _validate_issue_key(issue_key):
                 return func.HttpResponse(
-                    json.dumps({"error": "Missing 'issueKey' parameter"}),
+                    json.dumps({"error": "Invalid or missing issueKey"}),
                     status_code=400,
                     mimetype="application/json"
                 )
-
-            issue_url = f"{jira_url}/rest/api/3/issue/{issue_key}"
-            response = requests.get(issue_url, headers=headers, auth=auth)
+            response = requests.get(
+                f"{jira_url}/rest/api/3/issue/{issue_key}",
+                headers=headers, auth=auth, timeout=30
+            )
             response.raise_for_status()
-
             return func.HttpResponse(
-                json.dumps(response.json()),
-                status_code=200,
-                mimetype="application/json"
+                json.dumps(response.json()), status_code=200, mimetype="application/json"
             )
 
         elif operation == 'addCommentToJiraIssue':
-            issue_key = req_body.get('issueKey')
-            comment_body = req_body.get('body')
+            issue_key    = req_body.get('issueKey', '')
+            comment_body = req_body.get('body', '')
 
-            if not issue_key or not comment_body:
+            if not _validate_issue_key(issue_key):
                 return func.HttpResponse(
-                    json.dumps({"error": "Missing 'issueKey' or 'body' parameter"}),
+                    json.dumps({"error": "Invalid or missing issueKey"}),
+                    status_code=400,
+                    mimetype="application/json"
+                )
+            if not comment_body or not isinstance(comment_body, str):
+                return func.HttpResponse(
+                    json.dumps({"error": "Missing or invalid comment body"}),
+                    status_code=400,
+                    mimetype="application/json"
+                )
+            if len(comment_body) > 10000:
+                return func.HttpResponse(
+                    json.dumps({"error": "Comment body too long"}),
                     status_code=400,
                     mimetype="application/json"
                 )
 
-            comment_url = f"{jira_url}/rest/api/3/issue/{issue_key}/comment"
             payload = {
                 "body": {
-                    "type": "doc",
-                    "version": 1,
-                    "content": [
-                        {
-                            "type": "paragraph",
-                            "content": [
-                                {
-                                    "type": "text",
-                                    "text": comment_body
-                                }
-                            ]
-                        }
-                    ]
+                    "type": "doc", "version": 1,
+                    "content": [{"type": "paragraph", "content": [{"type": "text", "text": comment_body}]}]
                 }
             }
-
-            response = requests.post(comment_url, json=payload, headers=headers, auth=auth)
+            response = requests.post(
+                f"{jira_url}/rest/api/3/issue/{issue_key}/comment",
+                json=payload, headers=headers, auth=auth, timeout=30
+            )
             response.raise_for_status()
-
             return func.HttpResponse(
-                json.dumps(response.json()),
-                status_code=201,
-                mimetype="application/json"
+                json.dumps(response.json()), status_code=201, mimetype="application/json"
             )
 
         elif operation == 'atlassianUserInfo':
-            # Get current user info
-            myself_url = f"{jira_url}/rest/api/3/myself"
-            response = requests.get(myself_url, headers=headers, auth=auth)
-            response.raise_for_status()
-
-            return func.HttpResponse(
-                json.dumps(response.json()),
-                status_code=200,
-                mimetype="application/json"
+            response = requests.get(
+                f"{jira_url}/rest/api/3/myself",
+                headers=headers, auth=auth, timeout=30
             )
-
-        else:
+            response.raise_for_status()
             return func.HttpResponse(
-                json.dumps({"error": f"Unknown operation: {operation}"}),
-                status_code=400,
-                mimetype="application/json"
+                json.dumps(response.json()), status_code=200, mimetype="application/json"
             )
 
     except requests.exceptions.RequestException as e:
-        logging.error(f"Jira API error: {str(e)}")
+        logging.error(f"Jira upstream error: {e}", exc_info=True)
         return func.HttpResponse(
-            json.dumps({"error": f"Jira API error: {str(e)}"}),
-            status_code=500,
+            json.dumps({"error": "Upstream API error"}),
+            status_code=502,
             mimetype="application/json"
         )
     except Exception as e:
-        logging.error(f"Error in Jira function: {str(e)}")
+        logging.error(f"Jira function error: {e}", exc_info=True)
         return func.HttpResponse(
-            json.dumps({"error": str(e)}),
+            json.dumps({"error": "Internal server error"}),
             status_code=500,
             mimetype="application/json"
         )

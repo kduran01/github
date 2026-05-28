@@ -12,6 +12,6 @@
     "DATABRICKS_TOKEN": "your-databricks-pat"
   },
   "Host": {
-    "CORS": "*"
+    "CORS": "http://localhost:4280"
   }
 }

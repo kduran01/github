@@ -2,9 +2,19 @@
   "routes": [
     {
       "route": "/api/*",
-      "allowedRoles": ["anonymous"]
+      "allowedRoles": ["authenticated"]
     }
   ],
+  "auth": {
+    "identityProviders": {
+      "azureActiveDirectory": {
+        "registration": {
+          "openIdIssuer": "https://login.microsoftonline.com/common/v2.0",
+          "clientIdSettingName": "AZURE_CLIENT_ID"
+        }
+      }
+    }
+  },
   "navigationFallback": {
     "rewrite": "/index.html"
   },
@@ -12,6 +22,18 @@
     "404": {
       "rewrite": "/index.html",
       "statusCode": 200
+    },
+    "401": {
+      "rewrite": "/login",
+      "statusCode": 302
     }
+  },
+  "globalHeaders": {
+    "Content-Security-Policy": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'self' https://vantaca.atlassian.net; frame-ancestors 'none'; object-src 'none';",
+    "X-Frame-Options": "DENY",
+    "X-Content-Type-Options": "nosniff",
+    "Referrer-Policy": "strict-origin-when-cross-origin",
+    "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
+    "Permissions-Policy": "camera=(), microphone=(), geolocation=()"
   }
 }

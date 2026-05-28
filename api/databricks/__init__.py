@@ -174,16 +174,16 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
             )
 
     except requests.exceptions.RequestException as e:
-        logging.error(f"Databricks HTTP error: {e}")
+        logging.error(f"Databricks HTTP error: {e}", exc_info=True)
         return func.HttpResponse(
-            json.dumps({"error": f"Databricks HTTP error: {str(e)}"}),
-            status_code=500,
+            json.dumps({"error": "Upstream query error"}),
+            status_code=502,
             mimetype="application/json",
         )
     except Exception as e:
-        logging.error(f"Error in Databricks function: {e}")
+        logging.error(f"Error in Databricks function: {e}", exc_info=True)
         return func.HttpResponse(
-            json.dumps({"error": str(e)}),
+            json.dumps({"error": "Internal server error"}),
             status_code=500,
             mimetype="application/json",
         )
