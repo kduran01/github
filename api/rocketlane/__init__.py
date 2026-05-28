@@ -266,6 +266,70 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
                 mimetype="application/json",
             )
 
+        # ── CREATE TASK (Integrations phase) ────────────────────────────────────
+        # Creates a new task under the Integrations phase of a given project.
+        elif operation == "createTask":
+            project_id = str(body.get("projectId", "")).strip()
+            task_name  = str(body.get("taskName",  "")).strip()
+            task_start = body.get("taskStart")   # YYYY-MM-DD or None
+
+            if not project_id or not task_name:
+                return func.HttpResponse(
+                    json.dumps({"error": "Missing projectId or taskName"}),
+                    status_code=400,
+                    mimetype="application/json",
+                )
+
+            # Resolve Integrations phase ID
+            integrations_phase_id = None
+            try:
+                proj_data = rl_get(f"/projects/{project_id}", {"includeFields": "phases"}, api_key)
+                phases = (
+                    proj_data.get("phases")
+                    or proj_data.get("data", {}).get("phases")
+                    or []
+                )
+                for ph in phases:
+                    ph_name = (ph.get("name") or "").lower()
+                    if "integrations" in ph_name:
+                        integrations_phase_id = ph.get("id") or ph.get("phaseId")
+                        break
+            except Exception as e:
+                logging.warning(f"Could not fetch phases for project {project_id}: {e}")
+
+            rl_headers = {
+                "api-key": api_key,
+                "Accept": "application/json",
+                "Content-Type": "application/json",
+            }
+            task_payload: dict = {
+                "projectId": int(project_id),
+                "name":      task_name,
+            }
+            if integrations_phase_id:
+                task_payload["phaseId"] = integrations_phase_id
+            if task_start:
+                task_payload["startDate"] = task_start
+
+            resp = requests.post(
+                f"{RL_BASE}/tasks",
+                json=task_payload,
+                headers=rl_headers,
+                timeout=30,
+            )
+            resp.raise_for_status()
+            data    = resp.json()
+            task_id = str(
+                data.get("id")
+                or (data.get("data") or {}).get("id")
+                or ""
+            )
+            return func.HttpResponse(
+                json.dumps({"status": {"state": "SUCCEEDED"}, "taskId": task_id, "name": task_name}),
+                status_code=201,
+                mimetype="application/json",
+            )
+
         else:
             return func.HttpResponse(
                 json.dumps({"error": f"Unknown operation: {operation}"}),

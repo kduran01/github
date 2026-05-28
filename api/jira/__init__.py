@@ -7,7 +7,7 @@ import requests
 from requests.auth import HTTPBasicAuth
 
 _ISSUE_KEY_RE = re.compile(r'^[A-Z][A-Z0-9]+-\d+$')
-_ALLOWED_OPERATIONS = {'searchJiraIssuesUsingJql', 'getJiraIssue', 'addCommentToJiraIssue', 'atlassianUserInfo'}
+_ALLOWED_OPERATIONS = {'searchJiraIssuesUsingJql', 'getJiraIssue', 'addCommentToJiraIssue', 'atlassianUserInfo', 'createIssue'}
 _JQL_REQUIRED_SCOPE = 'project = "INT"'
 
 
@@ -144,6 +144,37 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
             response.raise_for_status()
             return func.HttpResponse(
                 json.dumps(response.json()), status_code=200, mimetype="application/json"
+            )
+
+        elif operation == 'createIssue':
+            summary = req_body.get('summary', '').strip()
+            if not summary:
+                return func.HttpResponse(
+                    json.dumps({"error": "Missing summary"}),
+                    status_code=400, mimetype="application/json"
+                )
+            if len(summary) > 255:
+                return func.HttpResponse(
+                    json.dumps({"error": "Summary too long (max 255 chars)"}),
+                    status_code=400, mimetype="application/json"
+                )
+            payload = {
+                "fields": {
+                    "project":   {"key": "INT"},
+                    "summary":   summary,
+                    "issuetype": {"name": "Task"},
+                }
+            }
+            response = requests.post(
+                f"{jira_url}/rest/api/3/issue",
+                json=payload, headers=headers, auth=auth, timeout=30
+            )
+            response.raise_for_status()
+            data      = response.json()
+            issue_key = data.get("key", "")
+            return func.HttpResponse(
+                json.dumps({"issueKey": issue_key, "url": f"{jira_url}/browse/{issue_key}"}),
+                status_code=201, mimetype="application/json"
             )
 
     except requests.exceptions.RequestException as e:

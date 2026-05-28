@@ -698,6 +698,8 @@ async function callMcp(tool, params, timeoutMs = 30000) {
       };
     } else if (tool.includes('atlassianUserInfo')) {
       body = { operation: 'atlassianUserInfo' };
+    } else if (tool.includes('createIssue')) {
+      body = { operation: 'createIssue', summary: params.summary };
     } else {
       return { status: { state: 'SUCCEEDED' }, result: { data_array: [] } };
     }
@@ -1201,10 +1203,72 @@ function showAddBankForm(projectId) {
   document.getElementById(`add-bank-form-${projectId}`)?.classList.toggle('hidden');
 }
 
-function submitAddBankForm(projectId) {
+async function submitAddBankForm(projectId) {
   const nameEl  = document.getElementById(`add-bank-name-${projectId}`);
   const startEl = document.getElementById(`add-bank-start-${projectId}`);
-  addManualBankTask(projectId, nameEl?.value || '', startEl?.value || '');
+  const taskName = (nameEl?.value || '').trim();
+  if (!taskName) { if (nameEl) nameEl.focus(); return; }
+
+  const saveBtn = document.querySelector(`#add-bank-form-${projectId} button[onclick*="submitAddBank"]`);
+  if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = 'Creating…'; }
+
+  const _resetBtn = () => { if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = 'Save'; } };
+  const _showNote = (msg, ok) => {
+    const formEl = document.getElementById(`add-bank-form-${projectId}`);
+    if (!formEl) return;
+    const note = document.createElement('div');
+    note.style.cssText = `font-size:11px;${ok ? 'color:#065f46;background:#ecfdf5' : 'color:#92400e;background:#fef3c7'};border-radius:4px;padding:4px 8px;margin-top:4px`;
+    note.textContent = msg;
+    formEl.appendChild(note);
+    setTimeout(() => note.remove(), 6000);
+  };
+
+  if (IS_LOCAL_FILE) {
+    addManualBankTask(projectId, taskName, startEl?.value || '');
+    _resetBtn();
+    _showNote('✓ Added locally. Rocketlane + Jira creation requires the deployed version.', false);
+    return;
+  }
+
+  // Build Jira summary: companyId - MM.D - bankName
+  const proj    = allProjects.find(p => p.id === projectId);
+  const glDate  = proj?.goLive ? parseLocalDate(proj.goLive) : null;
+  const glLabel = glDate ? `${glDate.getMonth()+1}.${glDate.getDate()}` : '';
+  const cid     = proj?.companyId || proj?.name || '';
+  const jiraSummary = [cid, glLabel, taskName].filter(Boolean).join(' - ');
+
+  let rlOk = false, jiraOk = false, jiraKey = '';
+
+  // 1. Create Rocketlane task under Integrations phase
+  try {
+    const rlResp = await fetch('/api/rocketlane', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ operation: 'createTask', projectId, taskName, taskStart: startEl?.value || null }),
+    });
+    rlOk = rlResp.ok;
+    if (!rlOk) logging.warn?.(`RL createTask ${rlResp.status}`);
+  } catch(e) { console.warn('RL createTask failed:', e); }
+
+  // 2. Create Jira ticket in INT project
+  try {
+    const jr = await fetch('/api/jira', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ operation: 'createIssue', summary: jiraSummary }),
+    });
+    if (jr.ok) { const d = await jr.json(); jiraKey = d.issueKey || ''; jiraOk = true; }
+    else console.warn(`Jira createIssue ${jr.status}`);
+  } catch(e) { console.warn('Jira createIssue failed:', e); }
+
+  addManualBankTask(projectId, taskName, startEl?.value || '');
+  _resetBtn();
+
+  const parts = [
+    rlOk   ? '✓ RL task created'      : '✗ RL failed',
+    jiraOk ? `✓ ${jiraKey} created`   : '✗ Jira failed',
+  ];
+  _showNote(parts.join(' · '), rlOk || jiraOk);
 }
 
 /* Parse ADF (Atlassian Document Format) to plain text for comment searching */
