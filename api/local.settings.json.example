@@ -6,7 +6,10 @@
     "ROCKETLANE_API_KEY": "your-rocketlane-api-key-here",
     "JIRA_URL": "https://vantaca.atlassian.net",
     "JIRA_EMAIL": "your-email@vantaca.com",
-    "JIRA_API_TOKEN": "your-jira-api-token"
+    "JIRA_API_TOKEN": "your-jira-api-token",
+    "DATABRICKS_HOST": "adb-XXXXXXXXXXXXXXXX.X.azuredatabricks.net",
+    "DATABRICKS_WAREHOUSE_ID": "your-sql-warehouse-id",
+    "DATABRICKS_TOKEN": "your-databricks-pat"
   },
   "Host": {
     "CORS": "*"

@@ -1613,7 +1613,7 @@ async function _refreshRocketlaneInBackground() {
     const timer = setTimeout(() => controller.abort(), 90000);
     let resp;
     try {
-      resp = await fetch('/api/rocketlane', {
+      resp = await fetch('/api/databricks', {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
         body:    JSON.stringify({ operation: 'getBankReadiness', projectIds }),
