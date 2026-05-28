@@ -457,8 +457,10 @@ let expandedRows    = new Set();
 let milestoneState  = {};
 // Running notes state — keyed by projectId, value is array of { text, by, at }
 let notesState      = {};
-// PM Bank Readiness manual-override state — keyed by "${projectId}__${subtaskId}", value bool
+// PM Bank Readiness manual-override state — keyed by "${ticketKey}__${subtaskId}", value bool
 let brState         = {};
+// Timestamps for brState entries (from Jira comments) — used for "most recent wins" merge
+let _brTs           = {};
 let currentUserName = 'Team Member';
 
 
@@ -1095,7 +1097,7 @@ const JIRA_AUTO_TAGS = {
 };
 
 // All system tags — hidden from the activity feed
-const SYSTEM_TAGS = ['[INT-NOTE]', '[INT-CREDS-DONE]', '[INT-TESTING-DONE]', '[INT-READY-GL]', '[INT-POST-GL]'];
+const SYSTEM_TAGS = ['[INT-NOTE]', '[INT-CREDS-DONE]', '[INT-TESTING-DONE]', '[INT-READY-GL]', '[INT-POST-GL]', '[INT-DASHBOARD]', '[INT-BR]'];
 
 /* After fetching all Jira issues (with comment field), scan every comment for:
    - [INT-AUTO] tags posted by Jira Automation → auto-check INT milestones
@@ -1142,6 +1144,34 @@ function parseMilestoneComments(issues) {
           }
         } catch(e) {}
       }
+
+      // ── Milestone state written by dashboard users [INT-DASHBOARD] ────────
+      const dashMatch = raw.match(/\[INT-DASHBOARD\]\s*(\{[^\n]+\})/);
+      if (dashMatch) {
+        try {
+          const data = JSON.parse(dashMatch[1]);
+          const key  = getMilestoneKey(data.tk, data.s);
+          const existing = milestoneState[key];
+          if (!existing?.at || new Date(data.at) >= new Date(existing.at)) {
+            milestoneState[key] = { completed: data.done === true, by: data.by || 'Team', at: data.at };
+          }
+        } catch(e) {}
+      }
+
+      // ── Bank readiness checklist state [INT-BR] ───────────────────────────
+      const brRe = /\[INT-BR\]\s*(\{[^\n]+\})/g;
+      let brMatch;
+      while ((brMatch = brRe.exec(raw)) !== null) {
+        try {
+          const data = JSON.parse(brMatch[1]);
+          const k    = String(data.k || '');
+          if (!k) continue;
+          if (!_brTs[k] || new Date(data.at) >= new Date(_brTs[k])) {
+            brState[k] = data.v === true;
+            _brTs[k]   = data.at;
+          }
+        } catch(e) {}
+      }
     }
   }
 
@@ -1152,6 +1182,7 @@ function parseMilestoneComments(issues) {
 
   saveMilestoneState();
   saveNotesState();
+  saveBRState();
 }
 
 /* Fetch the current Atlassian user's display name */
@@ -1179,6 +1210,28 @@ async function writeMilestoneComment(ticketKey, step, milestoneName, state) {
   });
 }
 
+/* Write a [INT-BR] comment so coworkers see bank readiness toggles on their next refresh */
+async function writeBRComment(jiraKey, brKey, state) {
+  const tag  = JSON.stringify({ k: brKey, v: state, by: currentUserName, at: new Date().toISOString() });
+  const verb = state ? '✅ Checked' : '⬜ Unchecked';
+  await callMcp(JIRA_COMMENT_TOOL, {
+    cloudId:       JIRA_CLOUD,
+    issueIdOrKey:  jiraKey,
+    body:          `${verb} bank readiness item\n\n[INT-BR] ${tag}`,
+    contentFormat: 'markdown',
+  });
+}
+
+/* Resolve the best INT Jira ticket key for a bank readiness write.
+   Jira-keyed items (INT-xxx) pass through; RL-keyed items look up the project's first INT ticket. */
+function _findJiraKeyForBR(ticketKey) {
+  if (ticketKey.startsWith('INT-')) return ticketKey;
+  const proj = allProjects.find(p =>
+    Object.values(p.bankReadinessMap || {}).some(e => `RL-${e.rlTaskId}` === ticketKey)
+  );
+  return proj?.tickets?.[0]?.key || null;
+}
+
 /* Toggle a milestone for a specific integration ticket.
    ticketKey is both the state key AND the Jira ticket to write the comment to. */
 async function toggleMilestone(ticketKey, step, milestoneName) {
@@ -1192,7 +1245,8 @@ async function toggleMilestone(ticketKey, step, milestoneName) {
   const safeId = ticketKey.replace(/[^a-zA-Z0-9-]/g, '');
   const el = document.getElementById(`ms-${safeId}-${step}`);
   if (el) applyMilestoneDOM(el, ticketKey, step, milestoneName, newState);
-  // State is persisted to localStorage only — no Jira comment written for checkbox toggles
+  // Write to Jira so coworkers see this change on their next refresh
+  writeMilestoneComment(ticketKey, step, milestoneName, newState).catch(() => {});
 }
 
 /* Apply visual state to a milestone DOM element without re-rendering the row */
@@ -1256,6 +1310,10 @@ function toggleBRItem(ticketKey, subtaskId) {
   const wasChecked = brState[key] === true;
   brState[key]     = !wasChecked;
   saveBRState();
+
+  // Write to Jira so coworkers see this change on their next refresh
+  const jiraKey = _findJiraKeyForBR(ticketKey);
+  if (jiraKey) writeBRComment(jiraKey, key, !wasChecked).catch(() => {});
 
   // Sanitize ticket key for safe DOM IDs (hyphens are valid in IDs)
   const safeKey = ticketKey.replace(/[^a-zA-Z0-9-]/g, '');
