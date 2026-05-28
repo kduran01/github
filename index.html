@@ -1603,7 +1603,7 @@ async function loadData() {
   updateStatusBar('partial', null, null);
   btn.disabled = false; btn.textContent = '↻ Refresh';
 
-  if (!IS_LOCAL_FILE) loadJira();
+  loadJira(); // always run — uses baked data instantly; skips live API when IS_LOCAL_FILE
   if (!IS_LOCAL_FILE) _refreshRocketlaneInBackground();
 }
 
@@ -1623,8 +1623,7 @@ async function loadJira() {
     document.getElementById('lastUpdated').textContent =
       `Cached ${new Date('2026-05-28').toLocaleDateString([],{month:'short',day:'numeric'})}`;
     updateStatusBar('ok', null, null);
-    // Try to refresh from live API silently in background
-    _refreshJiraInBackground();
+    if (!IS_LOCAL_FILE) _refreshJiraInBackground();
     return;
   }
   try {
