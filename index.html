@@ -1449,6 +1449,7 @@ async function loadData() {
   btn.disabled = false; btn.textContent = '↻ Refresh';
 
   loadJira();
+  _refreshRocketlaneInBackground();
 }
 
 async function loadJira() {
@@ -1597,6 +1598,54 @@ async function _refreshJiraInBackground() {
     document.getElementById('lastUpdated').textContent =
       `Updated ${new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}`;
     updateStatusBar('ok', null, null);
+  } catch(e) {
+    // silently keep baked data — no error shown to user
+  }
+}
+
+/* ══ ROCKETLANE BACKGROUND REFRESH ══ */
+async function _refreshRocketlaneInBackground() {
+  try {
+    const projectIds = allProjects.map(p => p.id);
+    if (!projectIds.length) return;
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 90000);
+    let resp;
+    try {
+      resp = await fetch('/api/rocketlane', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ operation: 'getBankReadiness', projectIds }),
+        signal:  controller.signal,
+      });
+    } finally {
+      clearTimeout(timer);
+    }
+    if (!resp.ok) return;
+
+    const data = await resp.json();
+    const liveBrMap = data?.brMap;
+    if (!liveBrMap || typeof liveBrMap !== 'object') return;
+
+    let updated = false;
+    allProjects.forEach(p => {
+      const live = liveBrMap[p.id];
+      if (live && Object.keys(live).length > 0) {
+        p.bankReadinessMap = live;
+        p.statusColor = rollupClientStatus(p);
+        updated = true;
+      }
+    });
+    if (!updated) return;
+
+    updateStats();
+    renderTable();
+    document.getElementById('lastUpdated').textContent =
+      `Updated ${new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}`;
+    const bar = document.getElementById('dataStatusBar');
+    bar.className = 'data-status-bar ok';
+    bar.innerHTML = `<span class="source-badge ok">Rocketlane ✓</span> Live data &nbsp;·&nbsp; <span class="source-badge ${jiraLoaded ? 'ok' : 'loading'}">${jiraLoaded ? 'Jira ✓' : 'Jira'}</span> ${jiraLoaded ? jiraTickets.length + ' active INT tickets' : 'Loading…'}`;
   } catch(e) {
     // silently keep baked data — no error shown to user
   }
