@@ -1411,6 +1411,7 @@ function toggleBRItem(ticketKey, subtaskId) {
   const key        = `${ticketKey}__${subtaskId}`;
   const wasChecked = brState[key] === true;
   brState[key]     = !wasChecked;
+  _brTs[key]       = new Date().toISOString();
   saveBRState();
 
   scheduleGitHubWrite();
