@@ -20,6 +20,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial
 .dashboard-title .subtitle { opacity: 0.6; font-weight: 400; font-size: 12px; margin-left: 10px; }
 .header-actions { display: flex; align-items: center; gap: 12px; }
 .last-updated { font-size: 11px; opacity: 0.55; }
+.sync-error { font-size: 11px; background: #dc2626; color: #fff; padding: 2px 8px; border-radius: 4px; font-weight: 600; }
 .btn-refresh { background: rgba(255,255,255,0.15); border: 1px solid rgba(255,255,255,0.25); color: white; padding: 5px 14px; border-radius: 6px; cursor: pointer; font-size: 12px; }
 .btn-refresh:hover { background: rgba(255,255,255,0.25); }
 .btn-refresh:disabled { opacity: 0.45; cursor: not-allowed; }
@@ -478,16 +479,38 @@ let _ghWriteTimer   = null;  // debounce timer for GitHub state writes
 
 /* ══ GITHUB SHARED STATE ══ */
 
+function _setSyncStatus(ok, msg) {
+  const el = document.getElementById('lastUpdated');
+  if (!el) return;
+  if (ok) {
+    el.className = 'last-updated';
+    el.textContent = msg;
+  } else {
+    el.className = 'sync-error';
+    el.textContent = msg;
+  }
+}
+
 /* Read state/dashboard.json from GitHub and merge into local state.
    Called on every Refresh so both users converge to the same state. */
 async function loadGitHubState() {
-  if (!GITHUB_STATE_TOKEN) return;
+  const placeholder = 'PASTE_YOUR_TOKEN_HERE';
+  if (!GITHUB_STATE_TOKEN || GITHUB_STATE_TOKEN === placeholder) {
+    _setSyncStatus(false, '⚠ No GitHub token — sync disabled');
+    return;
+  }
   try {
     const resp = await fetch(
       `https://api.github.com/repos/${GITHUB_STATE_REPO}/contents/${GITHUB_STATE_FILE}?ref=${GITHUB_STATE_BRANCH}`,
       { headers: { 'Authorization': `Bearer ${GITHUB_STATE_TOKEN}`, 'Accept': 'application/vnd.github+json' } }
     );
-    if (!resp.ok) return;
+    if (!resp.ok) {
+      const code = resp.status;
+      if (code === 401 || code === 403) _setSyncStatus(false, `⚠ GitHub token invalid (${code}) — create a new PAT`);
+      else if (code === 404)            _setSyncStatus(false, `⚠ state file not found on GitHub (${code})`);
+      else                              _setSyncStatus(false, `⚠ GitHub read failed (${code})`);
+      return;
+    }
     const file    = await resp.json();
     _ghSha        = file.sha;
     const remote  = JSON.parse(decodeURIComponent(escape(atob(file.content.replace(/\n/g, '')))));
@@ -528,20 +551,21 @@ async function loadGitHubState() {
       updateStats();
       renderTable();
     }
-    document.getElementById('lastUpdated').textContent =
-      `Synced ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
-  } catch(e) { /* silently keep local state */ }
+    _setSyncStatus(true, `Synced ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`);
+  } catch(e) {
+    _setSyncStatus(false, `⚠ GitHub sync error — check console`);
+  }
 }
 
 /* Debounce writes — coalesce rapid toggles into one GitHub commit */
 function scheduleGitHubWrite() {
-  if (!GITHUB_STATE_TOKEN) return;
+  if (!GITHUB_STATE_TOKEN || GITHUB_STATE_TOKEN === 'PASTE_YOUR_TOKEN_HERE') return;
   clearTimeout(_ghWriteTimer);
   _ghWriteTimer = setTimeout(_writeGitHubState, 1500);
 }
 
 async function _writeGitHubState() {
-  if (!GITHUB_STATE_TOKEN) return;
+  if (!GITHUB_STATE_TOKEN || GITHUB_STATE_TOKEN === 'PASTE_YOUR_TOKEN_HERE') return;
   try {
     const payload = { milestoneState, brState, brStateTs: _brTs, notesState,
                       updatedAt: new Date().toISOString(), updatedBy: currentUserName };
@@ -558,12 +582,16 @@ async function _writeGitHubState() {
     if (resp.ok) {
       const data = await resp.json();
       _ghSha = data.content.sha;
+      _setSyncStatus(true, `Saved ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`);
     } else if (resp.status === 409) {
-      // Conflict: another user wrote first — fetch their state, merge, retry
       await loadGitHubState();
       await _writeGitHubState();
+    } else {
+      _setSyncStatus(false, `⚠ GitHub write failed (${resp.status}) — token may be expired`);
     }
-  } catch(e) { /* silently keep local state */ }
+  } catch(e) {
+    _setSyncStatus(false, `⚠ GitHub write error — check console`);
+  }
 }
 
 /* ══ RESPONSE UNWRAPPER ══
