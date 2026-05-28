@@ -522,6 +522,12 @@ async function loadGitHubState() {
     }
     saveNotesState();
 
+    // Re-render so merged state from GitHub is visible in the UI
+    if (allProjects.length) {
+      allProjects.forEach(p => { p.statusColor = rollupClientStatus(p); });
+      updateStats();
+      renderTable();
+    }
     document.getElementById('lastUpdated').textContent =
       `Synced ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
   } catch(e) { /* silently keep local state */ }
