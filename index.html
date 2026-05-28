@@ -296,6 +296,7 @@ tbody td { padding: 9px 12px; vertical-align: middle; }
 
 <script>
 /* ══ TOOL IDs ══ */
+const IS_LOCAL_FILE = window.location.protocol === 'file:'; // true when opened as a local HTML file
 const DB_TOOL   = 'mcp__ace8c6f8-76f7-441f-9522-0b4ab858a385__execute_sql_read_only';
 const POLL_TOOL = 'mcp__ace8c6f8-76f7-441f-9522-0b4ab858a385__poll_sql_result';
 const JIRA_TOOL         = 'mcp__febcc92f-9040-4ea4-b33e-6aacbf9fcb04__searchJiraIssuesUsingJql';
@@ -1340,10 +1341,8 @@ async function toggleMilestone(ticketKey, step, milestoneName) {
   const safeId = ticketKey.replace(/[^a-zA-Z0-9-]/g, '');
   const el = document.getElementById(`ms-${safeId}-${step}`);
   if (el) applyMilestoneDOM(el, ticketKey, step, milestoneName, newState);
-  // Sync to shared GitHub state file (works from local HTML)
   scheduleGitHubWrite();
-  // Also write to Jira if deployed behind Azure Functions
-  writeMilestoneComment(ticketKey, step, milestoneName, newState).catch(() => {});
+  if (!IS_LOCAL_FILE) writeMilestoneComment(ticketKey, step, milestoneName, newState).catch(() => {});
 }
 
 /* Apply visual state to a milestone DOM element without re-rendering the row */
@@ -1408,11 +1407,8 @@ function toggleBRItem(ticketKey, subtaskId) {
   brState[key]     = !wasChecked;
   saveBRState();
 
-  // Sync to shared GitHub state file (works from local HTML)
   scheduleGitHubWrite();
-  // Also write to Jira if deployed behind Azure Functions
-  const jiraKey = _findJiraKeyForBR(ticketKey);
-  if (jiraKey) writeBRComment(jiraKey, key, !wasChecked).catch(() => {});
+  if (!IS_LOCAL_FILE) { const jiraKey = _findJiraKeyForBR(ticketKey); if (jiraKey) writeBRComment(jiraKey, key, !wasChecked).catch(() => {}); }
 
   // Sanitize ticket key for safe DOM IDs (hyphens are valid in IDs)
   const safeKey = ticketKey.replace(/[^a-zA-Z0-9-]/g, '');
@@ -1541,7 +1537,7 @@ async function loadData() {
   loadLocalMilestoneState();
   loadLocalNotesState();
   loadLocalBRState();
-  loadCurrentUser(); // async — resolves display name from Jira /myself
+  if (!IS_LOCAL_FILE) loadCurrentUser(); // needs /api/jira — skip when local
   loadGitHubState(); // async — merges shared state from GitHub repo
   document.getElementById('tableBody').innerHTML = `
     <tr><td colspan="10"><div class="loading-state">
@@ -1607,8 +1603,8 @@ async function loadData() {
   updateStatusBar('partial', null, null);
   btn.disabled = false; btn.textContent = '↻ Refresh';
 
-  loadJira();
-  _refreshRocketlaneInBackground();
+  if (!IS_LOCAL_FILE) loadJira();
+  if (!IS_LOCAL_FILE) _refreshRocketlaneInBackground();
 }
 
 async function loadJira() {
