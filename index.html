@@ -1631,13 +1631,10 @@ function renderDetail(p) {
   let intCardsHtml;
   if (!jiraLoaded) {
     intCardsHtml = `<div class="int-no-tickets">⏳ Loading Jira tickets…</div>`;
-  } else if (jiraError) {
-    intCardsHtml = `<div class="int-no-tickets">⚠️ Jira unavailable — <a href="https://vantaca.atlassian.net/jira/software/c/projects/INT/boards/69" target="_blank" style="color:#4f46e5">Open INT board</a></div>`;
-  } else if (!p.tickets.length) {
-    intCardsHtml = `<div class="int-no-tickets">🎫 No INT tickets matched to this client.<br><span style="font-size:11px"><a href="https://vantaca.atlassian.net/jira/software/c/projects/INT/boards/69" target="_blank" style="color:#4f46e5">Search the INT board →</a></span></div>`;
   } else {
-    const bankTickets  = p.tickets.filter(t => isBankTicket(t.summary));
-    const nonBankCount = p.tickets.length - bankTickets.length;
+    // When Jira failed or returned no tickets, bankTickets will be empty → RL fallback below
+    const bankTickets  = (jiraError || !p.tickets.length) ? [] : p.tickets.filter(t => isBankTicket(t.summary));
+    const nonBankCount = jiraError ? 0 : p.tickets.length - bankTickets.length;
 
     if (!bankTickets.length) {
       // ── Fallback: render RL bank task cards when no Jira tickets are matched ──
@@ -1815,7 +1812,9 @@ function renderDetail(p) {
           }).join('');
         }
       } else {
-        intCardsHtml = `<div class="int-no-tickets">🏦 No bank integration tickets found — <a href="https://vantaca.atlassian.net/jira/software/c/projects/INT/boards/69" target="_blank" style="color:#4f46e5">search the INT board →</a></div>`;
+        intCardsHtml = jiraError
+          ? `<div class="int-no-tickets">⚠️ Jira unavailable — <a href="https://vantaca.atlassian.net/jira/software/c/projects/INT/boards/69" target="_blank" style="color:#4f46e5">Open INT board</a></div>`
+          : `<div class="int-no-tickets">🏦 No bank integration tickets found — <a href="https://vantaca.atlassian.net/jira/software/c/projects/INT/boards/69" target="_blank" style="color:#4f46e5">search the INT board →</a></div>`;
       }
     } else {
       intCardsHtml = bankTickets.map(t => {
