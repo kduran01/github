@@ -2172,29 +2172,6 @@ function renderDetail(p) {
           </div>`;
         }).join('');
 
-        if (p.tickets.length > 0) {
-          intCardsHtml += `<div class="section-label" style="margin-top:14px;margin-bottom:6px;font-size:10px;letter-spacing:.08em;color:#6b7280">OTHER INT TICKETS</div>`;
-          intCardsHtml += p.tickets.map(t => {
-            const stale   = isStale(t);
-            const updDays = Math.floor((Date.now() - new Date(t.updated)) / 86400000);
-            return `<div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:10px 12px;display:flex;align-items:flex-start;gap:10px">
-              <a href="${escHtml(t.url)}" target="_blank" rel="noopener"
-                 style="flex-shrink:0;background:#4f46e5;color:#fff;font-size:10px;font-weight:700;padding:3px 7px;border-radius:4px;text-decoration:none;white-space:nowrap;letter-spacing:.03em">
-                ${escHtml(t.key)} ↗
-              </a>
-              <div style="flex:1;min-width:0">
-                <div style="font-size:12px;font-weight:600;color:#1e293b;margin-bottom:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escHtml(t.summary)}</div>
-                <div style="font-size:11px;color:#64748b;display:flex;gap:8px;flex-wrap:wrap;align-items:center">
-                  ${t.assignee !== 'Unassigned' ? `<span>🔧 ${escHtml(t.assignee)}</span>` : ''}
-                  ${t.reporterName ? `<span>📝 ${escHtml(t.reporterName)}</span>` : ''}
-                  <span>📅 ${t.updated}</span>
-                  ${stale ? `<span class="stale-flag">⚠ Stale ${updDays}d</span>` : ''}
-                </div>
-              </div>
-              <span class="jira-status ${t.statusCls}" style="flex-shrink:0">${escHtml(t.statusName)}</span>
-            </div>`;
-          }).join('');
-        }
       } else {
         intCardsHtml = jiraError
           ? `<div class="int-no-tickets">⚠️ Jira unavailable — <a href="https://vantaca.atlassian.net/jira/software/c/projects/INT/boards/69" target="_blank" style="color:#4f46e5">Open INT board</a></div>`
@@ -2407,32 +2384,6 @@ function renderDetail(p) {
           </div><!-- /int-card-body -->
         </div>`;
       }).join('');
-      // ── Non-bank tickets: show as clickable cards below bank cards ──────────
-      const nonBankTickets = p.tickets.filter(t => !isBankTicket(t.summary));
-      if (nonBankTickets.length) {
-        intCardsHtml += `<div class="section-label" style="margin-top:14px;margin-bottom:6px;font-size:10px;letter-spacing:.08em;color:#6b7280">OTHER INT TICKETS</div>`;
-        intCardsHtml += nonBankTickets.map(t => {
-          const stale   = isStale(t);
-          const safeKey = t.key.replace(/[^a-zA-Z0-9-]/g, '');
-          const updDays = Math.floor((Date.now() - new Date(t.updated)) / 86400000);
-          return `<div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:10px 12px;display:flex;align-items:flex-start;gap:10px">
-            <a href="${escHtml(t.url)}" target="_blank" rel="noopener"
-               style="flex-shrink:0;background:#4f46e5;color:#fff;font-size:10px;font-weight:700;padding:3px 7px;border-radius:4px;text-decoration:none;white-space:nowrap;letter-spacing:.03em">
-              ${escHtml(t.key)} ↗
-            </a>
-            <div style="flex:1;min-width:0">
-              <div style="font-size:12px;font-weight:600;color:#1e293b;margin-bottom:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escHtml(t.summary)}</div>
-              <div style="font-size:11px;color:#64748b;display:flex;gap:8px;flex-wrap:wrap;align-items:center">
-                ${t.assignee !== 'Unassigned' ? `<span>🔧 ${escHtml(t.assignee)}</span>` : ''}
-                ${t.reporterName ? `<span>📝 ${escHtml(t.reporterName)}</span>` : ''}
-                <span>📅 ${t.updated}</span>
-                ${stale ? `<span class="stale-flag">⚠ Stale ${updDays}d</span>` : ''}
-              </div>
-            </div>
-            <span class="jira-status ${t.statusCls}" style="flex-shrink:0">${escHtml(t.statusName)}</span>
-          </div>`;
-        }).join('');
-      }
     }
   }
 
