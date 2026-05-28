@@ -304,6 +304,15 @@ const JIRA_USER_TOOL    = 'mcp__febcc92f-9040-4ea4-b33e-6aacbf9fcb04__atlassianU
 const JIRA_CLOUD = 'd97732e2-8fd4-4a35-8c6c-eb2a8214cb23';
 const JIRA_BASE  = 'https://vantaca.atlassian.net/browse/';
 
+/* ══ SHARED STATE CONFIG ══
+   Create a fine-grained GitHub PAT at:
+   github.com → Settings → Developer Settings → Personal access tokens → Fine-grained tokens
+   Permissions needed: Contents → Read and Write (repository: kduran01/github only)
+   Paste the token below — this file stays internal to Vantaca. */
+const GITHUB_STATE_TOKEN = ''; // ← paste PAT here
+const GITHUB_STATE_REPO  = 'kduran01/github';
+const GITHUB_STATE_FILE  = 'state/dashboard.json';
+
 /* ══ TEAM CLASSIFICATION ══ */
 const PM_EMAILS = new Set([
   'cameron.williams@vantaca.com',
@@ -462,7 +471,91 @@ let brState         = {};
 // Timestamps for brState entries (from Jira comments) — used for "most recent wins" merge
 let _brTs           = {};
 let currentUserName = 'Team Member';
+let _ghSha          = null;  // current SHA of state/dashboard.json for conflict-free writes
+let _ghWriteTimer   = null;  // debounce timer for GitHub state writes
 
+/* ══ GITHUB SHARED STATE ══ */
+
+/* Read state/dashboard.json from GitHub and merge into local state.
+   Called on every Refresh so both users converge to the same state. */
+async function loadGitHubState() {
+  if (!GITHUB_STATE_TOKEN) return;
+  try {
+    const resp = await fetch(
+      `https://api.github.com/repos/${GITHUB_STATE_REPO}/contents/${GITHUB_STATE_FILE}`,
+      { headers: { 'Authorization': `Bearer ${GITHUB_STATE_TOKEN}`, 'Accept': 'application/vnd.github+json' } }
+    );
+    if (!resp.ok) return;
+    const file    = await resp.json();
+    _ghSha        = file.sha;
+    const remote  = JSON.parse(decodeURIComponent(escape(atob(file.content.replace(/\n/g, '')))));
+
+    // Merge milestoneState — most-recent-wins per key
+    for (const [k, v] of Object.entries(remote.milestoneState || {})) {
+      const local = milestoneState[k];
+      if (!local?.at || new Date(v.at) >= new Date(local.at)) milestoneState[k] = v;
+    }
+    saveMilestoneState();
+
+    // Merge brState — most-recent-wins using brStateTs timestamps
+    for (const [k, ts] of Object.entries(remote.brStateTs || {})) {
+      if (!_brTs[k] || new Date(ts) >= new Date(_brTs[k])) {
+        brState[k] = remote.brState?.[k] === true;
+        _brTs[k]   = ts;
+      }
+    }
+    saveBRState();
+
+    // Merge notesState — union by timestamp (no duplicates)
+    for (const [pid, notes] of Object.entries(remote.notesState || {})) {
+      const existing = new Set((notesState[pid] || []).map(n => n.at));
+      for (const n of notes) {
+        if (!existing.has(n.at)) {
+          if (!notesState[pid]) notesState[pid] = [];
+          notesState[pid].push(n);
+          existing.add(n.at);
+        }
+      }
+      notesState[pid]?.sort((a, b) => new Date(a.at) - new Date(b.at));
+    }
+    saveNotesState();
+
+    document.getElementById('lastUpdated').textContent =
+      `Synced ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+  } catch(e) { /* silently keep local state */ }
+}
+
+/* Debounce writes — coalesce rapid toggles into one GitHub commit */
+function scheduleGitHubWrite() {
+  if (!GITHUB_STATE_TOKEN) return;
+  clearTimeout(_ghWriteTimer);
+  _ghWriteTimer = setTimeout(_writeGitHubState, 1500);
+}
+
+async function _writeGitHubState() {
+  if (!GITHUB_STATE_TOKEN) return;
+  try {
+    const payload = { milestoneState, brState, brStateTs: _brTs, notesState,
+                      updatedAt: new Date().toISOString(), updatedBy: currentUserName };
+    const content = btoa(unescape(encodeURIComponent(JSON.stringify(payload, null, 2))));
+    const body    = { message: 'chore: dashboard state sync [skip ci]', content,
+                      ...(_ghSha ? { sha: _ghSha } : {}) };
+    const resp = await fetch(
+      `https://api.github.com/repos/${GITHUB_STATE_REPO}/contents/${GITHUB_STATE_FILE}`,
+      { method: 'PUT', headers: { 'Authorization': `Bearer ${GITHUB_STATE_TOKEN}`,
+        'Accept': 'application/vnd.github+json', 'Content-Type': 'application/json' },
+        body: JSON.stringify(body) }
+    );
+    if (resp.ok) {
+      const data = await resp.json();
+      _ghSha = data.content.sha;
+    } else if (resp.status === 409) {
+      // Conflict: another user wrote first — fetch their state, merge, retry
+      await loadGitHubState();
+      await _writeGitHubState();
+    }
+  } catch(e) { /* silently keep local state */ }
+}
 
 /* ══ RESPONSE UNWRAPPER ══
    callMcpTool in the artifact sandbox can return several shapes:
@@ -1245,7 +1338,9 @@ async function toggleMilestone(ticketKey, step, milestoneName) {
   const safeId = ticketKey.replace(/[^a-zA-Z0-9-]/g, '');
   const el = document.getElementById(`ms-${safeId}-${step}`);
   if (el) applyMilestoneDOM(el, ticketKey, step, milestoneName, newState);
-  // Write to Jira so coworkers see this change on their next refresh
+  // Sync to shared GitHub state file (works from local HTML)
+  scheduleGitHubWrite();
+  // Also write to Jira if deployed behind Azure Functions
   writeMilestoneComment(ticketKey, step, milestoneName, newState).catch(() => {});
 }
 
@@ -1311,7 +1406,9 @@ function toggleBRItem(ticketKey, subtaskId) {
   brState[key]     = !wasChecked;
   saveBRState();
 
-  // Write to Jira so coworkers see this change on their next refresh
+  // Sync to shared GitHub state file (works from local HTML)
+  scheduleGitHubWrite();
+  // Also write to Jira if deployed behind Azure Functions
   const jiraKey = _findJiraKeyForBR(ticketKey);
   if (jiraKey) writeBRComment(jiraKey, key, !wasChecked).catch(() => {});
 
@@ -1412,6 +1509,7 @@ async function addNote(projectId, primaryTicketKey) {
   if (!notesState[projectId]) notesState[projectId] = [];
   notesState[projectId].push(note);
   saveNotesState();
+  scheduleGitHubWrite();
 
   ta.value = '';
   ta.style.height = '';
@@ -1442,6 +1540,7 @@ async function loadData() {
   loadLocalNotesState();
   loadLocalBRState();
   loadCurrentUser(); // async — resolves display name from Jira /myself
+  loadGitHubState(); // async — merges shared state from GitHub repo
   document.getElementById('tableBody').innerHTML = `
     <tr><td colspan="10"><div class="loading-state">
       <div class="loading-spinner"></div>
