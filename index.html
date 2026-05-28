@@ -275,17 +275,18 @@ tbody td { padding: 9px 12px; vertical-align: middle; }
       <tr>
         <th style="width:32px;cursor:default"></th>
         <th style="width:28px;cursor:default"></th>
-        <th onclick="sortBy('client')"  id="th-client">Client</th>
-        <th onclick="sortBy('goLive')"  id="th-goLive" class="sorted">Go-Live ↑</th>
-        <th onclick="sortBy('days')"    id="th-days">Days Left</th>
-        <th onclick="sortBy('pm')"      id="th-pm">PM</th>
-        <th onclick="sortBy('int')"     id="th-int">INT Assigned</th>
-        <th onclick="sortBy('tickets')" id="th-tickets">INT Tickets</th>
-        <th onclick="sortBy('progress')"id="th-progress">Readiness</th>
+        <th onclick="sortBy('client')"    id="th-client">Client</th>
+        <th onclick="sortBy('companyId')" id="th-companyId">Company ID</th>
+        <th onclick="sortBy('goLive')"    id="th-goLive" class="sorted">Go-Live ↑</th>
+        <th onclick="sortBy('days')"      id="th-days">Days Left</th>
+        <th onclick="sortBy('pm')"        id="th-pm">PM</th>
+        <th onclick="sortBy('int')"       id="th-int">INT Assigned</th>
+        <th onclick="sortBy('tickets')"   id="th-tickets">INT Tickets</th>
+        <th onclick="sortBy('progress')"  id="th-progress">Readiness</th>
       </tr>
     </thead>
     <tbody id="tableBody">
-      <tr><td colspan="10"><div class="loading-state">
+      <tr><td colspan="11"><div class="loading-state">
         <div class="loading-spinner"></div>
         <div>Connecting to Rocketlane…</div>
       </div></td></tr>
@@ -1575,7 +1576,7 @@ async function loadData() {
   if (!IS_LOCAL_FILE) loadCurrentUser(); // needs /api/jira — skip when local
   loadGitHubState(); // async — merges shared state from GitHub repo
   document.getElementById('tableBody').innerHTML = `
-    <tr><td colspan="10"><div class="loading-state">
+    <tr><td colspan="11"><div class="loading-state">
       <div class="loading-spinner"></div>
       <div id="loadingMsg">Loading Rocketlane data…</div>
     </div></td></tr>`;
@@ -1907,8 +1908,9 @@ function getFiltered() {
   }).sort((a,b) => {
     let va, vb;
     switch(sortField) {
-      case 'client':   va=a.name;       vb=b.name;       break;
-      case 'goLive':   va=a.goLive;     vb=b.goLive;     break;
+      case 'client':    va=a.name;        vb=b.name;        break;
+      case 'companyId': va=a.companyId||''; vb=b.companyId||''; break;
+      case 'goLive':    va=a.goLive;     vb=b.goLive;     break;
       case 'days':     va=a.daysToGL;   vb=b.daysToGL;   break;
       case 'pm':       va=a.pm;         vb=b.pm;         break;
       case 'int':      va=a.intMembers[0]?.name||''; vb=b.intMembers[0]?.name||''; break;
@@ -1926,7 +1928,7 @@ function renderTable() {
   const projects = getFiltered();
   const tbody = document.getElementById('tableBody');
   if (!projects.length) {
-    tbody.innerHTML = `<tr><td colspan="10"><div class="empty-state">No clients match the current filters.</div></td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="11"><div class="empty-state">No clients match the current filters.</div></td></tr>`;
     return;
   }
   tbody.innerHTML = projects.flatMap(p => {
@@ -1965,6 +1967,7 @@ function renderTable() {
         <td><button class="expand-btn" onclick="event.stopPropagation();toggleExpand('${p.id}')">${exp?'▼':'▶'}</button></td>
         <td><span class="status-dot ${p.statusColor}"></span></td>
         <td style="font-weight:600;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escHtml(p.name)}">${escHtml(p.name)}</td>
+        <td style="font-size:11px;color:#6b7280;white-space:nowrap;font-family:monospace">${escHtml(p.companyId || '—')}</td>
         <td style="white-space:nowrap;color:#374151">${glStr}</td>
         <td>${daysBadge}</td>
         <td style="color:#374151;white-space:nowrap">${escHtml(p.pm)}</td>
@@ -1980,7 +1983,7 @@ function renderTable() {
 
     const detailRow = `
       <tr class="detail-row ${exp?'open':''}" id="detail-${p.id}">
-        <td colspan="10" class="detail-cell">${exp?renderDetail(p):''}</td>
+        <td colspan="11" class="detail-cell">${exp?renderDetail(p):''}</td>
       </tr>`;
     return [mainRow, detailRow];
   }).join('');
