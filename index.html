@@ -218,6 +218,7 @@ tbody td { padding: 9px 12px; vertical-align: middle; }
 .retry-btn { margin-top: 12px; padding: 6px 18px; border: 1px solid var(--border); border-radius: 6px; background: white; cursor: pointer; font-size: 12px; }
 
 .error-detail { background: #fef2f2; border: 1px solid #fecaca; border-radius: 6px; padding: 10px 12px; margin-top: 10px; font-size: 11px; color: #7f1d1d; text-align: left; max-width: 500px; word-break: break-all; margin-left: auto; margin-right: auto; }
+.hidden { display: none !important; }
 </style>
 </head>
 <body>
@@ -1027,6 +1028,50 @@ function saveBRState() {
   } catch(e) {}
 }
 
+// ── Manual bank task overrides (localStorage) ──────────────────────────────────
+// Structure: { projectId: { "MAN-timestamp": { taskName, taskStart } } }
+let manualBankTasks = {};
+try {
+  const saved = localStorage.getItem('vantaca_int_manual_banks');
+  if (saved) manualBankTasks = JSON.parse(saved);
+} catch(e) {}
+
+function saveManualBankTasks() {
+  try { localStorage.setItem('vantaca_int_manual_banks', JSON.stringify(manualBankTasks)); } catch(e) {}
+}
+
+function addManualBankTask(projectId, taskName, taskStart) {
+  if (!taskName.trim()) return;
+  if (!manualBankTasks[projectId]) manualBankTasks[projectId] = {};
+  const key = `MAN-${Date.now()}`;
+  manualBankTasks[projectId][key] = { taskName: taskName.trim(), taskStart: taskStart || null };
+  saveManualBankTasks();
+  // Re-render: collapse then re-expand
+  const detail = document.getElementById(`detail-${projectId}`);
+  if (detail) { expandedIds.delete(projectId); renderTable(); expandedIds.add(projectId); renderTable(); }
+}
+
+function removeManualBankTask(projectId, manKey) {
+  if (manualBankTasks[projectId]) {
+    delete manualBankTasks[projectId][manKey];
+    saveManualBankTasks();
+    // Clear any stored checklist state for this key
+    Object.keys(brState).forEach(k => { if (k.startsWith(manKey + '__')) delete brState[k]; });
+    saveBRState();
+    expandedIds.delete(projectId); renderTable(); expandedIds.add(projectId); renderTable();
+  }
+}
+
+function showAddBankForm(projectId) {
+  document.getElementById(`add-bank-form-${projectId}`)?.classList.toggle('hidden');
+}
+
+function submitAddBankForm(projectId) {
+  const nameEl  = document.getElementById(`add-bank-name-${projectId}`);
+  const startEl = document.getElementById(`add-bank-start-${projectId}`);
+  addManualBankTask(projectId, nameEl?.value || '', startEl?.value || '');
+}
+
 /* Parse ADF (Atlassian Document Format) to plain text for comment searching */
 function adfToText(node) {
   if (!node) return '';
@@ -1637,15 +1682,19 @@ function renderDetail(p) {
     const nonBankCount = jiraError ? 0 : p.tickets.length - bankTickets.length;
 
     if (!bankTickets.length) {
-      // ── Fallback: render RL bank task cards when no Jira tickets are matched ──
-      // This covers test projects and clients where Jira tickets haven't been created yet.
+      // ── Fallback: render RL bank task cards + any manually-added tasks ──
       const rlBankEntries = Object.entries(p.bankReadinessMap || {}).filter(([name]) => {
         const n = name.toLowerCase();
         return n.includes('bank') || BANK_KEYWORDS.some(kw => n.includes(kw));
       });
+      // Merge manual entries: treat same as RL entries with key prefix MAN-
+      const manEntries = Object.entries(manualBankTasks[p.id] || {}).map(([manKey, t]) =>
+        [t.taskName, { rlTaskId: manKey, taskStart: t.taskStart, items: [], _isManual: true, _manKey: manKey }]
+      );
+      const allBankEntries = [...rlBankEntries, ...manEntries];
 
-      if (rlBankEntries.length) {
-        intCardsHtml = rlBankEntries.map(([bankTaskName, entry]) => {
+      if (allBankEntries.length) {
+        intCardsHtml = allBankEntries.map(([bankTaskName, entry]) => {
           // Use "RL-{taskId}" as a stable per-bank key (no Jira ticket)
           const rlKey   = `RL-${entry.rlTaskId}`;
           const safeKey = rlKey.replace(/[^a-zA-Z0-9-]/g, '');
@@ -1767,12 +1816,22 @@ function renderDetail(p) {
             </div>`;
           }).join('');
 
+          const isManual    = !!entry._isManual;
+          const manKey      = entry._manKey || '';
+          const removeBtn   = isManual
+            ? `<button onclick="event.stopPropagation();removeManualBankTask('${p.id}','${manKey}')"
+                 title="Remove this manually-added task"
+                 style="margin-left:auto;background:none;border:none;cursor:pointer;font-size:13px;color:#9ca3af;padding:0 4px;line-height:1">×</button>`
+            : '';
+          const cardMeta    = isManual
+            ? `<span style="font-size:10px;color:#7c3aed">✎ Manual entry</span>`
+            : `<span style="font-size:10px;color:#9ca3af">RL task · no INT ticket yet</span>`;
+
           return `<div class="int-card">
             <div class="int-card-header" onclick="toggleBankCard('${safeKey}')">
               <div class="int-card-name">🏦 ${escHtml(bankTaskName)}</div>
-              <div class="int-card-meta">
-                <span style="font-size:10px;color:#9ca3af">RL task · no INT ticket yet</span>
-              </div>
+              <div class="int-card-meta">${cardMeta}</div>
+              ${removeBtn}
               <span class="int-card-chevron" id="bank-chev-${safeKey}">▼</span>
             </div>
             <div class="int-card-body" id="bank-body-${safeKey}">
@@ -2104,12 +2163,48 @@ function renderDetail(p) {
       }).join('')
     : `<div class="notes-empty">No notes yet — add the first one below.</div>`;
 
+  // ── Add bank task form (always shown at bottom of checklist section) ─────────
+  const bankNameOptions = [
+    'Western Alliance Bank (Banking)','American Momentum Bank (Banking)','AXOS Bank (Banking)',
+    'Banc of California (Banking)','Bank United (Banking)','City National Bank (Banking)',
+    'Cogent Bank (Banking)','Enterprise Bank (Banking)','First Citizens Bank (Banking)',
+    'First Resource Bank (Banking)','Heritage Bank (Banking)','Metro Phoenix Bank (Banking)',
+    'National Cooperative Bank (Banking)','North State Bank (Banking)',
+    'Pacific Premier Bank (Banking)','Pinnacle Bank (Banking)','Popular Bank (Banking)',
+    'South State Bank (Banking)','Sunwest Bank (Banking)','Truist (Banking)',
+    'US Bank (Banking)','Valley National Bank (Banking)','OZK Bank (Banking)',
+    'Webster Bank (Banking)','Wintrust Bank (Banking)',
+  ].map(n => `<option value="${n}">`).join('');
+
+  const addBankFormHtml = `
+    <div style="margin-top:8px">
+      <button onclick="showAddBankForm('${p.id}')"
+              style="font-size:11px;color:#4f46e5;background:none;border:1px dashed #c7d2fe;border-radius:6px;padding:5px 12px;cursor:pointer;width:100%">
+        + Add bank task manually
+      </button>
+      <div id="add-bank-form-${p.id}" class="hidden" style="margin-top:8px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:12px;display:flex;flex-direction:column;gap:8px">
+        <div style="font-size:11px;font-weight:600;color:#374151">Add bank task to checklist</div>
+        <datalist id="bank-names-${p.id}">${bankNameOptions}</datalist>
+        <input id="add-bank-name-${p.id}" list="bank-names-${p.id}" placeholder="Bank name (e.g. US Bank (Banking))"
+               style="font-size:12px;border:1px solid #d1d5db;border-radius:5px;padding:5px 8px;width:100%">
+        <input id="add-bank-start-${p.id}" type="date" title="Task start date (optional)"
+               style="font-size:12px;border:1px solid #d1d5db;border-radius:5px;padding:5px 8px;width:100%">
+        <div style="display:flex;gap:8px">
+          <button onclick="submitAddBankForm('${p.id}')"
+                  style="flex:1;font-size:12px;background:#4f46e5;color:#fff;border:none;border-radius:6px;padding:6px;cursor:pointer">Save</button>
+          <button onclick="showAddBankForm('${p.id}')"
+                  style="font-size:12px;background:#f1f5f9;color:#374151;border:1px solid #d1d5db;border-radius:6px;padding:6px 12px;cursor:pointer">Cancel</button>
+        </div>
+      </div>
+    </div>`;
+
   return `<div class="detail-grid">
     <div>
       <div class="section-label">Bank Integration Checklists
         <span style="font-weight:400;text-transform:none;font-size:10px;color:#9ca3af"> · checkboxes sync via Jira</span>
       </div>
       <div style="display:flex;flex-direction:column;gap:10px">${intCardsHtml}</div>
+      ${addBankFormHtml}
     </div>
     <div class="detail-right">
       <div class="detail-section">
