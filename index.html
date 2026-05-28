@@ -309,9 +309,10 @@ const JIRA_BASE  = 'https://vantaca.atlassian.net/browse/';
    github.com → Settings → Developer Settings → Personal access tokens → Fine-grained tokens
    Permissions needed: Contents → Read and Write (repository: kduran01/github only)
    Paste the token below — this file stays internal to Vantaca. */
-const GITHUB_STATE_TOKEN = ''; // ← paste PAT here
-const GITHUB_STATE_REPO  = 'kduran01/github';
-const GITHUB_STATE_FILE  = 'state/dashboard.json';
+const GITHUB_STATE_TOKEN  = ''; // ← paste PAT here
+const GITHUB_STATE_REPO   = 'kduran01/github';
+const GITHUB_STATE_FILE   = 'state/dashboard.json';
+const GITHUB_STATE_BRANCH = 'main';
 
 /* ══ TEAM CLASSIFICATION ══ */
 const PM_EMAILS = new Set([
@@ -482,7 +483,7 @@ async function loadGitHubState() {
   if (!GITHUB_STATE_TOKEN) return;
   try {
     const resp = await fetch(
-      `https://api.github.com/repos/${GITHUB_STATE_REPO}/contents/${GITHUB_STATE_FILE}`,
+      `https://api.github.com/repos/${GITHUB_STATE_REPO}/contents/${GITHUB_STATE_FILE}?ref=${GITHUB_STATE_BRANCH}`,
       { headers: { 'Authorization': `Bearer ${GITHUB_STATE_TOKEN}`, 'Accept': 'application/vnd.github+json' } }
     );
     if (!resp.ok) return;
@@ -539,6 +540,7 @@ async function _writeGitHubState() {
                       updatedAt: new Date().toISOString(), updatedBy: currentUserName };
     const content = btoa(unescape(encodeURIComponent(JSON.stringify(payload, null, 2))));
     const body    = { message: 'chore: dashboard state sync [skip ci]', content,
+                      branch: GITHUB_STATE_BRANCH,
                       ...(_ghSha ? { sha: _ghSha } : {}) };
     const resp = await fetch(
       `https://api.github.com/repos/${GITHUB_STATE_REPO}/contents/${GITHUB_STATE_FILE}`,
